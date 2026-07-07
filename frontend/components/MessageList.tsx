@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { ChatItem } from "@/lib/useChat";
+import ChatCard from "./cards/ChatCard";
 
 /**
  * Renders the chat transcript: user bubbles, streamed assistant text, error notices, and (from the
@@ -54,8 +55,11 @@ export default function MessageList({
               </div>
             );
           case "card":
-            // Card rendering (invoice / approval / receipt) is added in the next milestone.
-            return null;
+            return (
+              <div key={item.id} className="flex justify-start">
+                <ChatCard card={item.card} runId={item.runId} onApprove={onApprove} />
+              </div>
+            );
         }
       })}
       <div ref={endRef} />
