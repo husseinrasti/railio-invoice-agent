@@ -1,0 +1,74 @@
+[
+  {
+    "id": "inv-001",
+    "detail": "Monthly apartment rent - Unit 12B, Valiasr St.",
+    "amount": 12000000,
+    "currency": "IRR",
+    "expiresAt": "2026-07-25T20:30:00Z",
+    "depositAccountName": "Landlord",
+    "depositId": "RENT-2026-07"
+  },
+  {
+    "id": "inv-002",
+    "detail": "Electricity bill - Tavanir, period 04/1405",
+    "amount": 3500000,
+    "currency": "IRR",
+    "expiresAt": "2026-07-18T20:30:00Z",
+    "depositAccountName": "Utility Co",
+    "depositId": "ELEC-88123455"
+  },
+  {
+    "id": "inv-003",
+    "detail": "Home internet - fiber 100Mbps monthly",
+    "amount": 1200000,
+    "currency": "IRR",
+    "expiresAt": "2026-07-20T20:30:00Z",
+    "depositAccountName": "Internet ISP",
+    "depositId": "ISP-556677"
+  },
+  {
+    "id": "inv-004",
+    "detail": "Water and sewage bill - Abfa, summer period",
+    "amount": 8000000,
+    "currency": "IRR",
+    "expiresAt": "2026-07-22T20:30:00Z",
+    "depositAccountName": "Utility Co",
+    "depositId": "WATER-33440091"
+  },
+  {
+    "id": "inv-005",
+    "detail": "Yearly rental deposit top-up - Unit 12B",
+    "amount": 45000000,
+    "currency": "IRR",
+    "expiresAt": "2026-08-01T20:30:00Z",
+    "depositAccountName": "Landlord",
+    "depositId": "DEPOSIT-2026"
+  },
+  {
+    "id": "inv-006",
+    "detail": "Gym annual membership - Enghelab Sport Club",
+    "amount": 9000000,
+    "currency": "IRR",
+    "expiresAt": "2026-07-30T20:30:00Z",
+    "depositAccountName": "Gym Club",
+    "depositId": "GYM-2026-777"
+  },
+  {
+    "id": "inv-007",
+    "detail": "Used car purchase - Peugeot 207, dealer settlement",
+    "amount": 350000000,
+    "currency": "IRR",
+    "expiresAt": "2026-07-15T20:30:00Z",
+    "depositAccountName": "Auto Dealer",
+    "depositId": "CAR-INV-9021"
+  },
+  {
+    "id": "inv-008",
+    "detail": "Apartment down payment - property purchase",
+    "amount": 600000000,
+    "currency": "IRR",
+    "expiresAt": "2026-08-10T20:30:00Z",
+    "depositAccountName": "Landlord",
+    "depositId": "PROP-DOWN-01"
+  }
+]
