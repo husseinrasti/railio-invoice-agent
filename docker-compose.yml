@@ -41,10 +41,11 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        # Baked into the client bundle at build time (browser-reachable URL).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     depends_on:
       - backend
 
