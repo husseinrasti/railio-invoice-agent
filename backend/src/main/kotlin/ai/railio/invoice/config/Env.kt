@@ -9,7 +9,7 @@ object Env {
     val ollamaBaseUrl: String get() = get("OLLAMA_BASE_URL", "http://localhost:11434")
 
     /** Default Ollama model tag. */
-    val ollamaModel: String get() = get("OLLAMA_MODEL", "qwen3:4b")
+    val ollamaModel: String get() = get("OLLAMA_MODEL", "qwen3.5:4b")
 
     /** Location of the JSON config file (relative to the working dir by default). */
     val configPath: String get() = get("CONFIG_PATH", "data/config.json")

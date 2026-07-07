@@ -29,7 +29,7 @@ data class DepositAccountDto(val name: String, val accountNumber: String)
 @Serializable
 data class OllamaSettingsDto(
     val baseUrl: String = "http://localhost:11434",
-    val model: String = "qwen3:4b",
+    val model: String = "qwen3.5:4b",
 )
 
 fun AppConfigDto.toDomain(): AppConfig = AppConfig(

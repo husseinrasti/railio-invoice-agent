@@ -24,7 +24,7 @@ class JsonConfigRepositoryTest {
 
         assertTrue(path.exists())
         assertEquals(3, config.depositAccounts.size)
-        assertEquals("qwen3:4b", config.ollama.model)
+        assertEquals("qwen3.5:4b", config.ollama.model)
     }
 
     @Test

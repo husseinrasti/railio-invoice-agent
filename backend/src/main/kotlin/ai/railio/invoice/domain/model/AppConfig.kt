@@ -4,11 +4,11 @@ package ai.railio.invoice.domain.model
  * Ollama connection settings. Local-first; overridable per deployment.
  *
  * @property baseUrl Base URL of the Ollama server (e.g. `http://localhost:11434`).
- * @property model Model tag to run (e.g. `qwen3:4b`).
+ * @property model Model tag to run (e.g. `qwen3.5:4b`).
  */
 data class OllamaSettings(
     val baseUrl: String = "http://localhost:11434",
-    val model: String = "qwen3:4b",
+    val model: String = "qwen3.5:4b",
 )
 
 /**
