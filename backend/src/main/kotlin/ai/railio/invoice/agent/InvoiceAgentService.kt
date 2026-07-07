@@ -73,7 +73,8 @@ class InvoiceAgentService(
                 bus.emit(runId, AgentEvent.Card(AgentCard.Approval(request)))
                 store.setPending(runId, draft.payment.id)
                 streamNarration(runId, approvalNarration(invoice, decision.reasons))
-                bus.emit(runId, AgentEvent.Done)
+                // No Done here: the run is paused for approval and the SSE stream must stay open so
+                // the subsequent execute/receipt events (from approve()) reach the same client.
             } else {
                 finishPayment(runId, draft.payment.id)
             }

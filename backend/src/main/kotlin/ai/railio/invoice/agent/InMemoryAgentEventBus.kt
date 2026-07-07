@@ -26,6 +26,10 @@ class InMemoryAgentEventBus : AgentEventBus {
 
     override fun subscribe(runId: String): Flow<AgentEvent> = flowFor(runId).asSharedFlow()
 
+    /** Snapshot of the events buffered for [runId] so far (used by tests). */
+    fun buffered(runId: String): List<ai.railio.invoice.domain.model.AgentEvent> =
+        flowFor(runId).replayCache
+
     /** Drops a finished run's buffer to free memory. */
     fun clear(runId: String) {
         flows.remove(runId)
