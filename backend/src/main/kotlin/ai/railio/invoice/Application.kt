@@ -10,7 +10,6 @@ import ai.railio.invoice.api.routes.invoiceRoutes
 import ai.railio.invoice.di.AppModule
 import ai.railio.invoice.domain.port.AgentEventBus
 import ai.railio.invoice.domain.port.ConfigRepository
-import ai.railio.invoice.domain.port.InvoiceExtractionException
 import ai.railio.invoice.domain.port.InvoiceRepository
 import ai.railio.invoice.domain.usecase.GetConfigUseCase
 import ai.railio.invoice.domain.usecase.UpdateConfigUseCase
@@ -66,9 +65,6 @@ fun Application.module() {
         listOf(HttpMethod.Get, HttpMethod.Post, HttpMethod.Put, HttpMethod.Options).forEach(::allowMethod)
     }
     install(StatusPages) {
-        exception<InvoiceExtractionException> { call, cause ->
-            call.respond(HttpStatusCode.UnprocessableEntity, ErrorResponse(cause.message ?: "Extraction failed"))
-        }
         exception<IllegalArgumentException> { call, cause ->
             call.respond(HttpStatusCode.BadRequest, ErrorResponse(cause.message ?: "Bad request"))
         }

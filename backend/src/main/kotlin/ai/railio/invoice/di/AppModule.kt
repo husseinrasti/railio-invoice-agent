@@ -2,9 +2,10 @@ package ai.railio.invoice.di
 
 import ai.railio.invoice.agent.ConversationStore
 import ai.railio.invoice.agent.InMemoryAgentEventBus
+import ai.railio.invoice.agent.InvoiceAgentFactory
 import ai.railio.invoice.agent.InvoiceAgentService
-import ai.railio.invoice.agent.KoogInvoiceExtractor
 import ai.railio.invoice.agent.OllamaExecutorProvider
+import ai.railio.invoice.agent.RunStateStore
 import ai.railio.invoice.config.Env
 import ai.railio.invoice.data.config.JsonConfigRepository
 import ai.railio.invoice.data.document.DocumentParserRouter
@@ -16,7 +17,6 @@ import ai.railio.invoice.data.payment.MockPaymentProvider
 import ai.railio.invoice.domain.port.AgentEventBus
 import ai.railio.invoice.domain.port.ConfigRepository
 import ai.railio.invoice.domain.port.DocumentParser
-import ai.railio.invoice.domain.port.InvoiceExtractor
 import ai.railio.invoice.domain.port.InvoiceRepository
 import ai.railio.invoice.domain.port.PaymentProvider
 import ai.railio.invoice.domain.usecase.CheckBalanceUseCase
@@ -57,10 +57,6 @@ class AppModule {
         OllamaExecutorProvider(baseUrl = Env.ollamaBaseUrl, modelId = Env.ollamaModel)
 
     @Single
-    fun invoiceExtractor(provider: OllamaExecutorProvider): InvoiceExtractor =
-        KoogInvoiceExtractor(provider)
-
-    @Single
     fun evaluateInvoiceUseCase(config: ConfigRepository) = EvaluateInvoiceUseCase(config)
 
     @Single
@@ -85,12 +81,21 @@ class AppModule {
     fun conversationStore(): ConversationStore = ConversationStore()
 
     @Single
-    fun invoiceAgentService(
-        extractor: InvoiceExtractor,
+    fun runStateStore(): RunStateStore = RunStateStore()
+
+    @Single
+    fun invoiceAgentFactory(
+        provider: OllamaExecutorProvider,
         evaluate: EvaluateInvoiceUseCase,
         create: CreatePaymentUseCase,
         execute: ExecutePaymentUseCase,
         bus: AgentEventBus,
-        store: ConversationStore,
-    ): InvoiceAgentService = InvoiceAgentService(extractor, evaluate, create, execute, bus, store)
+    ): InvoiceAgentFactory = InvoiceAgentFactory(provider, evaluate, create, execute, bus)
+
+    @Single
+    fun invoiceAgentService(
+        factory: InvoiceAgentFactory,
+        bus: AgentEventBus,
+        runStates: RunStateStore,
+    ): InvoiceAgentService = InvoiceAgentService(factory, bus, runStates)
 }

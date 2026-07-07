@@ -5,8 +5,6 @@ import ai.railio.invoice.domain.model.DepositAccount
 import ai.railio.invoice.domain.model.Invoice
 import ai.railio.invoice.domain.model.SourceAccount
 import ai.railio.invoice.domain.port.ConfigRepository
-import ai.railio.invoice.domain.port.InvoiceExtractionException
-import ai.railio.invoice.domain.port.InvoiceExtractor
 
 /** In-memory [ConfigRepository] for tests. */
 class FakeConfigRepository(initial: AppConfig) : ConfigRepository {
@@ -15,15 +13,6 @@ class FakeConfigRepository(initial: AppConfig) : ConfigRepository {
 
     override suspend fun get(): AppConfig = current
     override suspend fun update(config: AppConfig): AppConfig = config.also { current = it }
-}
-
-/** [InvoiceExtractor] that returns a fixed invoice (or throws), so tests never touch a live LLM. */
-class FakeInvoiceExtractor(
-    private val invoice: Invoice? = null,
-    private val error: String? = null,
-) : InvoiceExtractor {
-    override suspend fun extract(text: String): Invoice =
-        invoice ?: throw InvoiceExtractionException(error ?: "no invoice")
 }
 
 /** Builds a test [AppConfig] with sensible defaults; override what a case cares about. */
