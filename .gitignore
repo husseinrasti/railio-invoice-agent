@@ -1,0 +1,29 @@
+# ---- Env ----
+.env
+*.local
+
+# ---- Kotlin / Gradle ----
+.gradle/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+!src/**/build/
+*.log
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ---- IDE / OS ----
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# ---- Implementation notes (never commit) ----
+IMPLEMENTATION*.md
+REPORT*.md

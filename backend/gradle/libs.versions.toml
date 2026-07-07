@@ -1,0 +1,47 @@
+# Single source of truth for dependency versions.
+# Pinned to the versions requested for this project; adjust here only.
+[versions]
+kotlin = "2.3.21"
+ksp = "2.3.9"
+coroutines = "1.11.0"
+koog = "1.0.0"
+koin = "4.2.0"                # koin-core / koin-ktor (BOM-aligned)
+koinAnnotations = "2.3.1"     # koin-annotations + koin-ksp-compiler (must match each other)
+serialization = "1.9.0"
+logback = "1.5.18"
+junit = "5.11.4"
+kotlinxDatetime = "0.6.2"
+
+[libraries]
+# Koog agent framework
+koog-agents = { module = "ai.koog:koog-agents", version.ref = "koog" }
+
+# Koin DI + annotations (KSP).
+# Note: no BOM. koin-annotations 2.3.1 transitively pins koin-core-annotations 4.1.0,
+# which the koin-ksp-compiler 2.3.1 generates against; a BOM would override that and
+# break the generated meta classes. Runtime Koin artifacts are pinned to 4.2.0.
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-ktor = { module = "io.insert-koin:koin-ktor", version.ref = "koin" }
+koin-logger-slf4j = { module = "io.insert-koin:koin-logger-slf4j", version.ref = "koin" }
+koin-annotations = { module = "io.insert-koin:koin-annotations", version.ref = "koinAnnotations" }
+koin-ksp-compiler = { module = "io.insert-koin:koin-ksp-compiler", version.ref = "koinAnnotations" }
+koin-test = { module = "io.insert-koin:koin-test-junit5", version.ref = "koin" }
+
+# Coroutines / serialization / misc
+kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+
+# Testing
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+# Note: the Ktor Gradle plugin is provided by the official `ktorLibs` catalog
+# (declared in settings.gradle.kts) and referenced as `ktorLibs.plugins.ktor`.
