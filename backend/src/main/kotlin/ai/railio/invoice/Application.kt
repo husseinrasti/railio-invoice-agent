@@ -83,7 +83,9 @@ fun Application.module() {
         if (path.startsWith("/api") && path != "/api/health") {
             val secret = configRepository.get().agentSecret
             if (!secret.isNullOrBlank()) {
+                // Header for fetch calls; `token` query param for EventSource (which cannot set headers).
                 val token = call.request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")?.trim()
+                    ?: call.request.queryParameters["token"]
                 if (token != secret) {
                     call.respond(HttpStatusCode.Unauthorized, ErrorResponse("Unauthorized"))
                     return@intercept finish()
