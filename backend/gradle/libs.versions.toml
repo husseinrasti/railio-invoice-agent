@@ -11,10 +11,14 @@ serialization = "1.9.0"
 logback = "1.5.18"
 junit = "5.11.4"
 kotlinxDatetime = "0.6.2"
+pdfbox = "3.0.5"
 
 [libraries]
 # Koog agent framework
 koog-agents = { module = "ai.koog:koog-agents", version.ref = "koog" }
+
+# PDF text extraction (text-extractable PDFs only; scanned PDFs are a future, vision-based feature)
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 
 # Koin DI + annotations (KSP).
 # Note: no BOM. koin-annotations 2.3.1 transitively pins koin-core-annotations 4.1.0,

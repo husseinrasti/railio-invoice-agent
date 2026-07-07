@@ -30,6 +30,9 @@ dependencies {
     // Koog agent framework
     implementation(libs.koog.agents)
 
+    // PDF text extraction (text-extractable PDFs only)
+    implementation(libs.pdfbox)
+
     // Koin DI + annotations via KSP (versions pinned in the catalog; see note there)
     implementation(libs.koin.core)
     implementation(libs.koin.ktor)
