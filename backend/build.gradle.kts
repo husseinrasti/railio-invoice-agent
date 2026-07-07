@@ -13,6 +13,10 @@ kotlin {
     jvmToolchain(21)
 }
 
+application {
+    mainClass.set("io.ktor.server.netty.EngineMain")
+}
+
 dependencies {
     // Ktor server (all Ktor artifacts come from the official `ktorLibs` catalog)
     implementation(ktorLibs.server.config.yaml)

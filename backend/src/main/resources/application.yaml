@@ -1,0 +1,6 @@
+ktor:
+  deployment:
+    port: "$BACKEND_PORT:8080"
+  application:
+    modules:
+      - ai.railio.invoice.ApplicationKt.module
