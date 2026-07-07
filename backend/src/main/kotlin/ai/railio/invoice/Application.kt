@@ -1,10 +1,14 @@
 package ai.railio.invoice
 
+import ai.railio.invoice.agent.ConversationStore
+import ai.railio.invoice.agent.InvoiceAgentService
 import ai.railio.invoice.api.dto.ErrorResponse
+import ai.railio.invoice.api.routes.chatRoutes
 import ai.railio.invoice.api.routes.configRoutes
 import ai.railio.invoice.api.routes.healthRoutes
 import ai.railio.invoice.api.routes.invoiceRoutes
 import ai.railio.invoice.di.AppModule
+import ai.railio.invoice.domain.port.AgentEventBus
 import ai.railio.invoice.domain.port.ConfigRepository
 import ai.railio.invoice.domain.port.InvoiceExtractionException
 import ai.railio.invoice.domain.port.InvoiceRepository
@@ -44,12 +48,14 @@ fun main(args: Array<String>) = io.ktor.server.netty.EngineMain.main(args)
  * requires `Authorization: Bearer <secret>`. With no secret set (local dev default) the API is open.
  */
 fun Application.module() {
+    val appJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
     install(Koin) {
         slf4jLogger()
         modules(AppModule().module)
     }
     install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
+        json(appJson)
     }
     install(CallLogging) { level = Level.INFO }
     install(SSE)
@@ -89,12 +95,16 @@ fun Application.module() {
     val getConfig by inject<GetConfigUseCase>()
     val updateConfig by inject<UpdateConfigUseCase>()
     val invoices by inject<InvoiceRepository>()
+    val agentService by inject<InvoiceAgentService>()
+    val eventBus by inject<AgentEventBus>()
+    val conversations by inject<ConversationStore>()
 
     routing {
         route("/api") {
             healthRoutes()
             configRoutes(getConfig, updateConfig)
             invoiceRoutes(invoices)
+            chatRoutes(agentService, eventBus, conversations, appJson)
         }
     }
 }

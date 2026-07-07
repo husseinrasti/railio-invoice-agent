@@ -1,5 +1,8 @@
 package ai.railio.invoice.di
 
+import ai.railio.invoice.agent.ConversationStore
+import ai.railio.invoice.agent.InMemoryAgentEventBus
+import ai.railio.invoice.agent.InvoiceAgentService
 import ai.railio.invoice.agent.KoogInvoiceExtractor
 import ai.railio.invoice.agent.OllamaExecutorProvider
 import ai.railio.invoice.config.Env
@@ -10,6 +13,7 @@ import ai.railio.invoice.data.document.TextDocumentParser
 import ai.railio.invoice.data.document.VisionDocumentParser
 import ai.railio.invoice.data.invoice.JsonInvoiceRepository
 import ai.railio.invoice.data.payment.MockPaymentProvider
+import ai.railio.invoice.domain.port.AgentEventBus
 import ai.railio.invoice.domain.port.ConfigRepository
 import ai.railio.invoice.domain.port.DocumentParser
 import ai.railio.invoice.domain.port.InvoiceExtractor
@@ -73,4 +77,20 @@ class AppModule {
 
     @Single
     fun updateConfigUseCase(config: ConfigRepository) = UpdateConfigUseCase(config)
+
+    @Single
+    fun agentEventBus(): AgentEventBus = InMemoryAgentEventBus()
+
+    @Single
+    fun conversationStore(): ConversationStore = ConversationStore()
+
+    @Single
+    fun invoiceAgentService(
+        extractor: InvoiceExtractor,
+        evaluate: EvaluateInvoiceUseCase,
+        create: CreatePaymentUseCase,
+        execute: ExecutePaymentUseCase,
+        bus: AgentEventBus,
+        store: ConversationStore,
+    ): InvoiceAgentService = InvoiceAgentService(extractor, evaluate, create, execute, bus, store)
 }
