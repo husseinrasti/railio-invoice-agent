@@ -8,9 +8,10 @@ needed → execute → final receipt).
 The agent is **local‑first**: it talks to a local [Ollama](https://ollama.com) model by default and
 never sends data to a cloud provider unless you configure one.
 
-> **Safety by design.** Only invoice *extraction* uses the LLM. The approval decision and the money
-> movement run through deterministic use cases on the server, so the model can never bypass the
-> approval gate or the spending cap.
+> **Safety by design.** The LLM drives a real Koog tool loop (it reads the invoice and calls the
+> tools), but the approval/cap **decision** and the money movement run through deterministic use
+> cases inside those tools. The `payNow` tool refuses to transfer when approval is required and not
+> yet granted, so a misbehaving model can never bypass the approval gate or the spending cap.
 
 ---
 
@@ -22,7 +23,7 @@ Clean Architecture, with the domain at the centre and frameworks at the edges.
 ┌────────────────────────── backend (Ktor + Koog + Koin) ──────────────────────────┐
 │                                                                                   │
 │  api/            Ktor routes, DTOs, SSE  ── depends on ──▶  usecases + ports      │
-│  agent/          Koog LLM extraction, orchestrator, event bus, streaming          │
+│  agent/          Koog AIAgent + tools (LLM-driven), event bus, streaming          │
 │  data/           JSON config/invoices, mock payment provider, document parsers    │
 │  domain/         models + ports (interfaces) + use cases   ◀── pure Kotlin        │
 │  di/             Koin wiring (annotations, KSP-verified)                          │
@@ -35,18 +36,29 @@ Clean Architecture, with the domain at the centre and frameworks at the edges.
 ```
 
 The `domain` layer has **no framework dependencies**. Every external concern (config store, invoice
-source, payment provider, document parsing, LLM extraction, event bus) is a **port** with a swappable
-implementation — the code is database‑ready without over‑engineering.
+source, payment provider, document parsing, event bus) is a **port** with a swappable implementation
+— the code is database‑ready without over‑engineering.
 
 ### Agent workflow
 
+A Koog `AIAgent` is given three tools and a system prompt; **the LLM decides the calls**. The tools
+wrap the deterministic use cases and enforce the gate:
+
 ```
-user input ─▶ extractInvoice (LLM) ─▶ evaluateInvoice ─▶ createPayment ─┬─▶ [auto] executePayment ─▶ receipt
-                                       (approval policy)                 └─▶ [needs approval] approval card ─▶ approve ─▶ executePayment ─▶ receipt
+user input ─▶ LLM ─▶ readInvoice (records invoice, runs approval policy) ─┬─▶ [within policy]  payNow ─▶ receipt
+                                                                          └─▶ [needs approval] requestApproval ─▶ approval card
+                                                                                                    │ user approves
+                                                                                                    ▼
+                                                                                                  payNow ─▶ receipt
 ```
 
-Each step emits typed events (`tool_call`, `card`, `log`, `token`, `assistant`, `done`, `error`) over
-SSE. Cards render inline in the chat; logs stream into the desktop log panel.
+`payNow` refuses to move money unless the invoice is within policy or the user has approved — the
+safety gate lives in the tool, not in the prompt. Every step emits typed events (`tool_call`, `card`,
+`log`, `token`, `assistant`, `done`, `error`) over SSE; a Koog `EventHandler` mirrors the LLM/tool
+lifecycle to the server log. Cards render inline in the chat; logs stream into the desktop log panel.
+
+> **Note.** Because the model sequences each tool call as a separate LLM turn, end‑to‑end latency
+> tracks your model. A small, non‑“thinking” Ollama model keeps runs responsive.
 
 ### Approval policy
 
@@ -72,13 +84,13 @@ reflects the live balance.
 | Layer     | Choice                                                                 |
 |-----------|------------------------------------------------------------------------|
 | Language  | Kotlin 2.3.21 (JVM 21)                                                  |
-| Agent     | Koog 1.0.0 (Ollama executor, structured extraction, streaming)         |
+| Agent     | Koog 1.0.0 (Ollama executor, tool-calling AIAgent, EventHandler, streaming) |
 | Server    | Ktor 3.5.0 (Netty, SSE, ContentNegotiation, CORS, StatusPages)         |
 | DI        | Koin 4.2 with Koin Annotations (KSP, compile‑time verified)            |
 | Async     | Kotlin Coroutines 1.11                                                  |
 | PDF       | Apache PDFBox 3.0 (text extraction)                                     |
 | Frontend  | Next.js 15 (App Router) · React 19 · Tailwind CSS                       |
-| Model     | Ollama, default `qwen3:4b` (configurable)                              |
+| Model     | Ollama, default `qwen3.5:4b` (configurable)                              |
 | Packaging | Docker + Docker Compose                                                 |
 
 ---
@@ -91,7 +103,7 @@ invoice-agent/
 │   └── src/main/kotlin/ai/railio/invoice/
 │       ├── domain/{model,port,usecase}   # pure business core
 │       ├── data/{config,invoice,payment,document}
-│       ├── agent/                        # Koog extraction, orchestrator, event bus
+│       ├── agent/{tools}                 # Koog AIAgent + tools, event bus, streaming
 │       ├── api/{routes,dto}              # Ktor routes + wire DTOs
 │       ├── di/                           # Koin module
 │       └── Application.kt                # Ktor entry point
@@ -113,7 +125,7 @@ invoice-agent/
 - [Ollama](https://ollama.com) running locally, with a model pulled:
 
   ```bash
-  ollama pull qwen3:4b
+  ollama pull qwen3.5:4b
   ```
 
   Any Ollama chat model works — set `OLLAMA_MODEL` to match what you have pulled. A small,
@@ -123,7 +135,7 @@ invoice-agent/
 
 ```bash
 cd backend
-OLLAMA_MODEL=qwen3:4b ./gradlew run     # serves on http://localhost:8080
+OLLAMA_MODEL=qwen3.5:4b ./gradlew run     # serves on http://localhost:8080
 ```
 
 ### Frontend
@@ -167,7 +179,7 @@ Key environment variables:
 | Variable              | Default                   | Purpose                              |
 |-----------------------|---------------------------|--------------------------------------|
 | `OLLAMA_BASE_URL`     | `http://localhost:11434`  | Ollama server URL                    |
-| `OLLAMA_MODEL`        | `qwen3:4b`                | Model tag                            |
+| `OLLAMA_MODEL`        | `qwen3.5:4b`                | Model tag                            |
 | `BACKEND_PORT`        | `8080`                    | Backend port                         |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080`   | Backend URL baked into the web client|
 | `AGENT_SECRET`        | *(empty)*                 | Optional bearer secret               |
@@ -198,9 +210,9 @@ cd backend && ./gradlew test
   validation.
 - **Mock payment provider** — balance checks, deduction, insufficient‑balance failure.
 - **Repositories** — JSON round‑trip and seed loading.
-- **Invoice JSON parser** — tolerant of fences, prose, and thousands separators (no live LLM).
-- **Orchestrator** — auto‑pay, approval pause, approve, reject, and extraction‑failure paths (fake
-  extractor → deterministic, no Ollama needed).
+- **Agent tools** — `readInvoice` / `requestApproval` / `payNow` tested directly: policy decision,
+  the approval/cap gate (`payNow` refuses without approval), and post‑approval execution. Deterministic,
+  no live LLM.
 - **API routes** — `testApplication` covering health, config, samples, and bearer auth.
 
 The frontend builds via `npm run build` (type‑checked).
@@ -209,7 +221,8 @@ The frontend builds via `npm run build` (type‑checked).
 
 ## Design decisions
 
-- **LLM only extracts.** Money movement and the approval gate are deterministic and server‑enforced.
+- **LLM drives tools; tools enforce safety.** The model sequences the Koog tool calls, but money
+  movement and the approval/cap gate live inside the tools (deterministic, server‑enforced).
 - **Two‑phase approval.** A run that needs approval pauses after creating the payment; its SSE stream
   stays open so the post‑approval receipt reaches the same client.
 - **Ports everywhere.** JSON stores and the mock payment provider sit behind interfaces, so a database
