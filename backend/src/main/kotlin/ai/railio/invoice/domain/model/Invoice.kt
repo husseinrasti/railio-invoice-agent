@@ -1,6 +1,6 @@
 package ai.railio.invoice.domain.model
 
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 /**
  * A payable invoice as understood by the agent.

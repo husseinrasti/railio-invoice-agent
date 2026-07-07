@@ -1,6 +1,6 @@
 package ai.railio.invoice.domain.model
 
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 /** Whether a receipt previews an intended transfer or confirms a completed one. */
 enum class ReceiptKind {

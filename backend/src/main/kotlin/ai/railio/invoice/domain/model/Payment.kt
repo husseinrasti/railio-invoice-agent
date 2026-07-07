@@ -1,6 +1,6 @@
 package ai.railio.invoice.domain.model
 
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 /** Lifecycle state of a payment through the Iranian transfer flow. */
 enum class PaymentStatus {
