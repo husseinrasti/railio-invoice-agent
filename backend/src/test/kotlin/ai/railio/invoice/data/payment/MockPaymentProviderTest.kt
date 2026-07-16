@@ -19,6 +19,7 @@ class MockPaymentProviderTest {
 
     private fun request(amount: Long = 1_000_000, invoiceId: String = "inv-1") = TransferRequest(
         invoiceId = invoiceId,
+        sourceBankAccountId = "bank-1",
         detail = "Test invoice",
         amount = amount,
         destinationIdentifier = "IR120000000000000000000001",

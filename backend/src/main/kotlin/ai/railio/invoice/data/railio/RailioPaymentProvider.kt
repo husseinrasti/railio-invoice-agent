@@ -1,5 +1,6 @@
 package ai.railio.invoice.data.railio
 
+import ai.railio.invoice.domain.model.SourceBankAccount
 import ai.railio.invoice.domain.model.TransferRequest
 import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.ConfigRepository
@@ -36,13 +37,17 @@ class RailioPaymentProvider(
 
     private val log = LoggerFactory.getLogger(RailioPaymentProvider::class.java)
 
+    override suspend fun listSourceAccounts(): List<SourceBankAccount> {
+        val cfg = config.get().railio
+        val response = authorized("${cfg.baseUrl}/api/v1/bank-accounts", post = false)
+        // Railio filters this to shared accounts plus ours; another agent's is never returned.
+        return response.decode<List<BankAccountDto>>().map { it.toDomain() }
+    }
+
     override suspend fun submitTransfer(request: TransferRequest, idempotencyKey: String): TransferResult {
         val cfg = config.get().railio
-        require(cfg.sourceBankAccountId.isNotBlank()) {
-            "No Railio source bank account configured. A human must link one in the dashboard first."
-        }
         val body = TransferRequestDto(
-            sourceBankAccountId = cfg.sourceBankAccountId,
+            sourceBankAccountId = request.sourceBankAccountId,
             destinationType = request.destinationType.name,
             destinationIdentifier = request.destinationIdentifier,
             destinationAccountHolderName = request.destinationAccountHolderName,
@@ -131,8 +136,12 @@ class RailioPaymentProvider(
             message = problem.message ?: problem.title ?: "Railio returned ${status.value}",
             requestId = problem.requestId,
             // 401 already retried above; 403 (missing scope / never-allowed action), 422 (malformed
-            // request) and policy denials are deterministic — retrying changes nothing.
-            retryable = status.value >= 500 || status == HttpStatusCode.RequestTimeout,
+            // request, including a missing required field) and policy denials are deterministic —
+            // retrying changes nothing. 429 and 5xx are transient, and a retry reuses the same
+            // idempotency key, so it cannot double-pay.
+            retryable = status.value >= 500 ||
+                status == HttpStatusCode.TooManyRequests ||
+                status == HttpStatusCode.RequestTimeout,
         )
     }
 

@@ -40,7 +40,7 @@ class ApiRoutesTest {
     private fun validConfig(balance: Long = 100, secret: String? = null) = buildString {
         append("""{"sourceAccount":{"name":"T","accountNumber":"IR1","balance":$balance},""")
         append(""""depositAccounts":[{"name":"Landlord","accountNumber":"IR2"}],""")
-        append(""""railio":{"baseUrl":"https://railio.test","clientId":"agt_1","sourceBankAccountId":"bank-1"}""")
+        append(""""railio":{"baseUrl":"https://railio.test","clientId":"agt_1"}""")
         if (secret != null) append(""","agentSecret":"$secret"""")
         append("}")
     }

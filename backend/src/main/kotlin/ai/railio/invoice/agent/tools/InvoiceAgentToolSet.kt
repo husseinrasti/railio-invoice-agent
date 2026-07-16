@@ -12,6 +12,7 @@ import ai.railio.invoice.domain.model.ReceiptKind
 import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.AgentEventBus
 import ai.railio.invoice.domain.port.PaymentProviderException
+import ai.railio.invoice.domain.port.NoUsableSourceAccountException
 import ai.railio.invoice.domain.port.UnknownDepositAccountException
 import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
 import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
@@ -82,12 +83,17 @@ class InvoiceAgentToolSet(
                 "report the outcome you were already given."
         }
 
-        val result = try {
+        val submitted = try {
             submitTransfer(invoice)
         } catch (e: UnknownDepositAccountException) {
             state.phase = RunPhase.DONE
             return "Cannot pay: no deposit account named '${e.depositAccountName}' is configured. " +
                 "Ask the user to add its IBAN on the Config page."
+        } catch (e: NoUsableSourceAccountException) {
+            state.phase = RunPhase.DONE
+            // The agent may not add or enable a bank account — this needs a human.
+            return "Cannot pay: this agent has no active ${e.currency} bank account to pay from. " +
+                "Tell the user to add one in the Railio dashboard and make it available to this agent."
         } catch (e: PaymentProviderException) {
             state.phase = RunPhase.DONE
             return when {
@@ -102,8 +108,15 @@ class InvoiceAgentToolSet(
             }
         }
 
+        val result = submitted.result
         state.transferId = result.id
-        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, result, ReceiptKind.PREVIEW))))
+        state.sourceLabel = submitted.source.label
+        bus.emit(
+            runId,
+            AgentEvent.Card(
+                AgentCard.ReceiptIssued(buildReceipt(invoice, result, ReceiptKind.PREVIEW, submitted.source.label)),
+            ),
+        )
         return report(invoice, result)
     }
 
@@ -155,7 +168,7 @@ class InvoiceAgentToolSet(
                 "approval and that you will report the outcome. Stop now."
         }
 
-        PaymentStatus.AWAITING_OTP, PaymentStatus.AWAITING_ACTION -> {
+        PaymentStatus.AWAITING_ACTION -> {
             bus.emit(
                 runId,
                 AgentEvent.Card(

@@ -26,7 +26,6 @@ data class OllamaView(val baseUrl: String, val model: String)
 data class RailioView(
     val baseUrl: String,
     val clientId: String,
-    val sourceBankAccountId: String,
     val hasSecret: Boolean = false,
 )
 
@@ -35,7 +34,6 @@ data class RailioView(
 data class RailioUpdate(
     val baseUrl: String,
     val clientId: String,
-    val sourceBankAccountId: String,
 )
 
 /**
@@ -71,7 +69,6 @@ fun AppConfig.toView(hasRailioSecret: Boolean = false): ConfigView = ConfigView(
     railio = RailioView(
         baseUrl = railio.baseUrl,
         clientId = railio.clientId,
-        sourceBankAccountId = railio.sourceBankAccountId,
         hasSecret = hasRailioSecret,
     ),
     ollama = OllamaView(ollama.baseUrl, ollama.model),
@@ -83,7 +80,7 @@ fun AppConfig.toView(hasRailioSecret: Boolean = false): ConfigView = ConfigView(
 fun ConfigUpdateRequest.toDomain(existing: AppConfig): AppConfig = AppConfig(
     sourceAccount = SourceAccount(sourceAccount.name, sourceAccount.accountNumber, sourceAccount.balance),
     depositAccounts = depositAccounts.map { DepositAccount(it.name, it.accountNumber) },
-    railio = railio?.let { RailioSettings(it.baseUrl, it.clientId, it.sourceBankAccountId) } ?: existing.railio,
+    railio = railio?.let { RailioSettings(it.baseUrl, it.clientId) } ?: existing.railio,
     ollama = ollama?.let { OllamaSettings(it.baseUrl, it.model) } ?: existing.ollama,
     apiUrl = apiUrl ?: existing.apiUrl,
     agentSecret = agentSecret?.takeIf { it.isNotBlank() } ?: existing.agentSecret,

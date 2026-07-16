@@ -1,5 +1,6 @@
 package ai.railio.invoice.domain.port
 
+import ai.railio.invoice.domain.model.SourceBankAccount
 import ai.railio.invoice.domain.model.TransferRequest
 import ai.railio.invoice.domain.model.TransferResult
 
@@ -12,6 +13,16 @@ import ai.railio.invoice.domain.model.TransferResult
  * parked awaiting a human. Implementations: a local mock, or the real Railio API.
  */
 interface PaymentProvider {
+    /**
+     * Lists the funding accounts this agent is allowed to draw from.
+     *
+     * The result is filtered by the execution layer to the tenant's shared accounts plus any assigned
+     * to this agent — accounts belonging to another agent are never returned. The agent discovers its
+     * source this way rather than holding a configured id, because assignment and defaults change.
+     * It cannot create or edit these; that is a human's job.
+     */
+    suspend fun listSourceAccounts(): List<SourceBankAccount>
+
     /**
      * Proposes [request] for execution and returns the state it landed in.
      *
@@ -71,3 +82,12 @@ class PaymentProviderException(
 /** The invoice named a deposit account that is not in the configured address book, so it has no IBAN. */
 class UnknownDepositAccountException(val depositAccountName: String) :
     RuntimeException("No deposit account named '$depositAccountName' is configured")
+
+/**
+ * No ACTIVE funding account is visible to this agent in the required currency.
+ *
+ * Not recoverable by the agent: it cannot add or enable a bank account (those writes reject an agent
+ * token), so this escalates to a human.
+ */
+class NoUsableSourceAccountException(val currency: String) :
+    RuntimeException("No ACTIVE source bank account in $currency is available to this agent")

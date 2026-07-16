@@ -8,9 +8,7 @@ const STATUS_STYLE: Record<PaymentStatus, string> = {
   EXPIRED: "border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/40",
   AWAITING_APPROVAL: "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40",
   AWAITING_ACTION: "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40",
-  AWAITING_OTP: "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40",
   CREATED: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
-  POLICY_CHECKING: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
   EXECUTING: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
 };
 

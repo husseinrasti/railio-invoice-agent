@@ -25,6 +25,9 @@ class AgentRunState {
     /** Id of the proposed transfer, once submitted; the handle used to poll for its outcome. */
     @Volatile var transferId: String? = null
 
+    /** Label of the discovered account funding the transfer, for the receipt. */
+    @Volatile var sourceLabel: String? = null
+
     @Volatile var phase: RunPhase = RunPhase.RUNNING
 }
 

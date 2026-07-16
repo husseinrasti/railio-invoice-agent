@@ -7,6 +7,7 @@ import ai.railio.invoice.domain.model.AgentCard
 import ai.railio.invoice.domain.model.AgentEvent
 import ai.railio.invoice.data.payment.MockPaymentProvider
 import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
+import ai.railio.invoice.domain.usecase.SelectSourceAccountUseCase
 import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
 import ai.railio.invoice.support.FakeConfigRepository
 import ai.railio.invoice.support.testConfig
@@ -42,7 +43,7 @@ class InvoiceAgentToolSetTest {
             runId = runId,
             state = state,
             bus = bus,
-            submitTransfer = SubmitTransferUseCase(provider, config),
+            submitTransfer = SubmitTransferUseCase(provider, config, SelectSourceAccountUseCase(provider)),
             buildReceipt = BuildReceiptUseCase(config),
         )
     }
@@ -141,11 +142,11 @@ class InvoiceAgentToolSetTest {
         tools(config, first, bus).readInvoice("Rent for July", 5_000_000, "Landlord", "RENT-2026-07", "")
         tools(config, second, bus).readInvoice("Rent, July", 5_000_000, "Landlord", "RENT-2026-07", "")
 
+        val provider = MockPaymentProvider(config)
+        val submit = SubmitTransferUseCase(provider, config, SelectSourceAccountUseCase(provider))
+
         assertEquals(first.invoice!!.id, second.invoice!!.id)
-        assertEquals(
-            SubmitTransferUseCase(MockPaymentProvider(config), config).idempotencyKey(first.invoice!!),
-            SubmitTransferUseCase(MockPaymentProvider(config), config).idempotencyKey(second.invoice!!),
-        )
+        assertEquals(submit.idempotencyKey(first.invoice!!), submit.idempotencyKey(second.invoice!!))
     }
 
     @Test

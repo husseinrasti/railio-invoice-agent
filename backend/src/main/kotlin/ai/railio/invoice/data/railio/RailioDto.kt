@@ -1,6 +1,8 @@
 package ai.railio.invoice.data.railio
 
+import ai.railio.invoice.domain.model.BankAccountStatus
 import ai.railio.invoice.domain.model.PaymentStatus
+import ai.railio.invoice.domain.model.SourceBankAccount
 import ai.railio.invoice.domain.model.TransferResult
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -48,6 +50,41 @@ data class TransferResponseDto(
     val actionContext: String? = null,
 )
 
+/**
+ * A tenant bank account as returned by `GET /api/v1/bank-accounts`.
+ *
+ * **`cardNumber` is intentionally not declared.** Railio returns identifiers unmasked, and a full
+ * card number is a PAN; leaving it out of the DTO means it is dropped at the boundary and can never
+ * reach a log line, a prompt, or the LLM's context. We only need the id to fund a transfer.
+ */
+@Serializable
+data class BankAccountDto(
+    val id: String,
+    val bankName: String? = null,
+    val iban: String? = null,
+    val agentId: String? = null,
+    val isDefault: Boolean = false,
+    val status: String? = null,
+    val currency: String? = null,
+)
+
+/** Maps a wire bank account onto the domain model. */
+fun BankAccountDto.toDomain(): SourceBankAccount = SourceBankAccount(
+    id = id,
+    bankName = bankName,
+    iban = iban,
+    agentId = agentId,
+    isDefault = isDefault,
+    status = when (status?.uppercase()) {
+        "ACTIVE" -> BankAccountStatus.ACTIVE
+        "DISABLED" -> BankAccountStatus.DISABLED
+        "REMOVED" -> BankAccountStatus.REMOVED
+        "PENDING_VERIFICATION" -> BankAccountStatus.PENDING_VERIFICATION
+        else -> BankAccountStatus.UNKNOWN
+    },
+    currency = currency,
+)
+
 /** RFC-7807 problem body. Branch on [code] — [message] is localized. */
 @Serializable
 data class ProblemDto(
@@ -60,18 +97,17 @@ data class ProblemDto(
 /**
  * Maps a Railio status string onto the domain enum; unknown values are treated as in-flight.
  *
- * The live transfer enum is CREATED, AWAITING_APPROVAL, AWAITING_ACTION, EXECUTING, COMPLETED,
- * FAILED, CANCELLED, EXPIRED. The extra cases here cover the payments API and are harmless.
+ * A transfer's status set is exactly CREATED, AWAITING_APPROVAL, AWAITING_ACTION, EXECUTING,
+ * COMPLETED, FAILED, CANCELLED, EXPIRED — there is no AWAITING_OTP (an OTP arrives as
+ * AWAITING_ACTION with `actionType: "OTP"`) and no POLICY_CHECKING.
  */
 fun String.toPaymentStatus(): PaymentStatus = when (uppercase()) {
-    "COMPLETED", "SUCCEEDED", "SUCCESS" -> PaymentStatus.COMPLETED
-    "FAILED", "DENIED" -> PaymentStatus.FAILED
+    "COMPLETED" -> PaymentStatus.COMPLETED
+    "FAILED" -> PaymentStatus.FAILED
     "AWAITING_APPROVAL" -> PaymentStatus.AWAITING_APPROVAL
-    "AWAITING_OTP" -> PaymentStatus.AWAITING_OTP
     "AWAITING_ACTION" -> PaymentStatus.AWAITING_ACTION
-    "CANCELLED", "CANCELED" -> PaymentStatus.CANCELLED
+    "CANCELLED" -> PaymentStatus.CANCELLED
     "EXPIRED" -> PaymentStatus.EXPIRED
-    "POLICY_CHECKING" -> PaymentStatus.POLICY_CHECKING
     "EXECUTING" -> PaymentStatus.EXECUTING
     else -> PaymentStatus.CREATED
 }

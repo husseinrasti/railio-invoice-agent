@@ -1,7 +1,9 @@
 package ai.railio.invoice.domain.usecase
 
+import ai.railio.invoice.domain.model.BankAccountStatus
 import ai.railio.invoice.domain.model.DestinationType
 import ai.railio.invoice.domain.model.Invoice
+import ai.railio.invoice.domain.model.SourceBankAccount
 import ai.railio.invoice.domain.model.PaymentPurpose
 import ai.railio.invoice.domain.model.PaymentStatus
 import ai.railio.invoice.domain.model.Receipt
@@ -10,6 +12,7 @@ import ai.railio.invoice.domain.model.TransferMethod
 import ai.railio.invoice.domain.model.TransferRequest
 import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.ConfigRepository
+import ai.railio.invoice.domain.port.NoUsableSourceAccountException
 import ai.railio.invoice.domain.port.PaymentProvider
 import ai.railio.invoice.domain.port.UnknownDepositAccountException
 import kotlinx.coroutines.delay
@@ -20,29 +23,68 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /**
+ * Chooses which of the agent's visible funding accounts should pay a transfer.
+ *
+ * The listing already excludes other agents' accounts, so a non-null `agentId` means "assigned to
+ * me". Preference order, per the integration contract:
+ *
+ * 1. an account assigned to this agent — a tenant that scoped one to us did so deliberately;
+ * 2. otherwise the tenant's default shared account;
+ * 3. otherwise any ACTIVE shared account in the right currency.
+ *
+ * Only ACTIVE accounts are eligible (a disabled one is rejected as a source), and the currency must
+ * match. Rules 1 and 2 cannot collide: a default is tenant-wide and never agent-assigned.
+ */
+class SelectSourceAccountUseCase(private val provider: PaymentProvider) {
+
+    /**
+     * Returns the account that should fund a transfer in [currency].
+     *
+     * @throws NoUsableSourceAccountException if none is usable — the agent cannot add or enable one,
+     *   so this needs a human.
+     */
+    suspend operator fun invoke(currency: String): SourceBankAccount {
+        val usable = provider.listSourceAccounts().filter {
+            it.status == BankAccountStatus.ACTIVE && (it.currency == null || it.currency.equals(currency, ignoreCase = true))
+        }
+        return usable.firstOrNull { it.agentId != null }
+            ?: usable.firstOrNull { it.isDefault }
+            ?: usable.firstOrNull()
+            ?: throw NoUsableSourceAccountException(currency)
+    }
+}
+
+/**
  * Proposes an invoice for payment.
  *
- * Resolves the invoice's deposit name to an IBAN via the configured address book, then submits the
- * transfer keyed by the **invoice id**, so a retry after a timeout returns the existing operation
- * rather than paying the invoice twice.
+ * Discovers the funding account, resolves the invoice's deposit name to an IBAN via the configured
+ * address book, then submits the transfer keyed by the **invoice id**, so a retry after a timeout
+ * returns the existing operation rather than paying the invoice twice.
  *
  * This use case makes no approval decision — the execution layer's policy engine owns that.
  */
 class SubmitTransferUseCase(
     private val provider: PaymentProvider,
     private val config: ConfigRepository,
+    private val selectSource: SelectSourceAccountUseCase,
 ) {
     /**
-     * Proposes [invoice] and returns the state it landed in (which may be terminal, in flight, or parked).
+     * Proposes [invoice] and returns the transfer's state together with the account funding it.
      *
      * @throws UnknownDepositAccountException if the invoice's deposit name has no configured IBAN.
+     * @throws NoUsableSourceAccountException if the agent has no usable funding account.
      */
-    suspend operator fun invoke(invoice: Invoice): TransferResult {
+    suspend operator fun invoke(invoice: Invoice): SubmittedTransfer {
         val deposit = config.get().depositAccountByName(invoice.depositAccountName)
             ?: throw UnknownDepositAccountException(invoice.depositAccountName)
 
+        // Discovered, never configured: the server applies no default of its own, so this is always
+        // sent explicitly.
+        val source = selectSource(invoice.currency)
+
         val request = TransferRequest(
             invoiceId = invoice.id,
+            sourceBankAccountId = source.id,
             detail = invoice.detail,
             amount = invoice.amount,
             currency = invoice.currency,
@@ -53,12 +95,15 @@ class SubmitTransferUseCase(
             purpose = PaymentPurpose.INVOICE,
             depositId = invoice.depositId,
         )
-        return provider.submitTransfer(request, idempotencyKey(invoice))
+        return SubmittedTransfer(provider.submitTransfer(request, idempotencyKey(invoice)), source)
     }
 
     /** The idempotency key for [invoice]: stable across attempts, unique per business event. */
     fun idempotencyKey(invoice: Invoice): String = "invoice-${invoice.id}"
 }
+
+/** A proposed transfer plus the account chosen to fund it. */
+data class SubmittedTransfer(val result: TransferResult, val source: SourceBankAccount)
 
 /**
  * Polls a parked or in-flight operation until it reaches a terminal state.
@@ -103,22 +148,27 @@ class PollTransferUseCase(
 /** Builds the chat receipt card for [result], filling the destination from the address book. */
 class BuildReceiptUseCase(private val config: ConfigRepository) {
 
-    /** Renders [result] for [invoice] as a [kind] receipt. */
+    /**
+     * Renders [result] for [invoice] as a [kind] receipt.
+     *
+     * @param sourceLabel Label of the account that funded it, as discovered at proposal time; falls
+     *   back to the configured (mock) source when the transfer never got that far.
+     */
     suspend operator fun invoke(
         invoice: Invoice,
         result: TransferResult,
         kind: ReceiptKind,
+        sourceLabel: String? = null,
         now: Instant = Clock.System.now(),
     ): Receipt {
         val cfg = config.get()
         val deposit = cfg.depositAccountByName(invoice.depositAccountName)
-        val sourceLabel = cfg.railio.sourceBankAccountId.ifBlank { cfg.sourceAccount.name }
         return Receipt(
             paymentId = result.id,
             kind = kind,
             status = result.status,
             amount = result.amount,
-            sourceLabel = sourceLabel,
+            sourceLabel = sourceLabel ?: cfg.sourceAccount.name,
             depositName = invoice.depositAccountName,
             depositId = invoice.depositId,
             depositAccount = deposit?.accountNumber,

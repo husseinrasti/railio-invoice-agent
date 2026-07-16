@@ -20,10 +20,6 @@ export function statusText(status: PaymentStatus): string {
       return "Awaiting approval";
     case "AWAITING_ACTION":
       return "Awaiting action";
-    case "AWAITING_OTP":
-      return "Awaiting OTP";
-    case "POLICY_CHECKING":
-      return "Checking policy";
     case "EXECUTING":
       return "Executing";
     case "CREATED":

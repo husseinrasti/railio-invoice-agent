@@ -38,7 +38,6 @@ class JsonConfigRepositoryTest {
         val readBack = repo.get()
 
         assertEquals(123_456_789, readBack.sourceAccount.balance)
-        assertEquals("bank-acc-1", readBack.railio.sourceBankAccountId)
     }
 
     @Test

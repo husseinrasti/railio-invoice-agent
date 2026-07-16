@@ -1,5 +1,6 @@
 package ai.railio.invoice.data.railio
 
+import ai.railio.invoice.domain.model.BankAccountStatus
 import ai.railio.invoice.domain.model.PaymentStatus
 import ai.railio.invoice.domain.model.RailioSettings
 import ai.railio.invoice.domain.model.TransferRequest
@@ -33,6 +34,7 @@ class RailioPaymentProviderTest {
 
     private val request = TransferRequest(
         invoiceId = "inv-1",
+        sourceBankAccountId = "bank-1",
         detail = "Invoice 1",
         amount = 5_000_000,
         destinationIdentifier = "IR120000000000000000000001",
@@ -105,6 +107,27 @@ class RailioPaymentProviderTest {
         assertTrue(body.contains("\"amount\":\"5000000\""), "money must be a decimal string, not a float: $body")
         assertTrue(body.contains("\"purpose\":\"INVOICE\""))
         assertFalse(body.contains("tenantId"), "tenant comes from the token, never the body")
+    }
+
+    @Test
+    fun `source accounts are discovered and the card number is dropped at the boundary`() = runTest {
+        // Railio returns identifiers unmasked. A full card number is a PAN: it must not survive into
+        // the domain, where it could reach a log line or the model's context.
+        val provider = provider {
+            HttpStatusCode.OK to """[{"id":"ba_1","bankName":"Mellat","iban":"IR062960000000100324200001",
+                "accountNumber":"0100324200001","cardNumber":"6274129005473742","agentId":null,
+                "isDefault":true,"status":"ACTIVE","currency":"IRR"}]"""
+        }
+        val accounts = provider.listSourceAccounts()
+
+        assertEquals(1, accounts.size)
+        assertEquals("ba_1", accounts[0].id)
+        assertTrue(accounts[0].isDefault)
+        assertEquals(BankAccountStatus.ACTIVE, accounts[0].status)
+        assertFalse(
+            accounts[0].toString().contains("6274129005473742"),
+            "a PAN must not survive into the domain model",
+        )
     }
 
     @Test
@@ -196,7 +219,7 @@ class RailioPaymentProviderTest {
             expectSuccess = false
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; encodeDefaults = true }) }
         }
-        val config = FakeConfigRepository(testConfig(railio = RailioSettings("https://railio.test", "agt_old", "bank-1")))
+        val config = FakeConfigRepository(testConfig(railio = RailioSettings("https://railio.test", "agt_old")))
         val provider = RailioPaymentProvider(http, RailioTokenProvider(http, config, { "sk_test" }), config)
 
         provider.submitTransfer(request, "invoice-inv-1")

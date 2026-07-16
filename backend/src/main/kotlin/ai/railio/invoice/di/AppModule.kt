@@ -24,6 +24,7 @@ import ai.railio.invoice.domain.port.PaymentProvider
 import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
 import ai.railio.invoice.domain.usecase.GetConfigUseCase
 import ai.railio.invoice.domain.usecase.PollTransferUseCase
+import ai.railio.invoice.domain.usecase.SelectSourceAccountUseCase
 import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
 import ai.railio.invoice.domain.usecase.UpdateConfigUseCase
 import io.ktor.client.HttpClient
@@ -110,8 +111,14 @@ class AppModule {
         OllamaExecutorProvider(baseUrl = Env.ollamaBaseUrl, modelId = Env.ollamaModel)
 
     @Single
-    fun submitTransferUseCase(provider: PaymentProvider, config: ConfigRepository) =
-        SubmitTransferUseCase(provider, config)
+    fun selectSourceAccountUseCase(provider: PaymentProvider) = SelectSourceAccountUseCase(provider)
+
+    @Single
+    fun submitTransferUseCase(
+        provider: PaymentProvider,
+        config: ConfigRepository,
+        selectSource: SelectSourceAccountUseCase,
+    ) = SubmitTransferUseCase(provider, config, selectSource)
 
     @Single
     fun pollTransferUseCase(provider: PaymentProvider) = PollTransferUseCase(provider)

@@ -13,11 +13,9 @@ export interface InvoiceView {
 /** Lifecycle states Railio reports. A created payment is not a paid one. */
 export type PaymentStatus =
   | "CREATED"
-  | "POLICY_CHECKING"
   | "EXECUTING"
   | "AWAITING_APPROVAL"
   | "AWAITING_ACTION"
-  | "AWAITING_OTP"
   | "COMPLETED"
   | "FAILED"
   | "CANCELLED"
@@ -94,7 +92,6 @@ export interface OllamaView {
 export interface RailioView {
   baseUrl: string;
   clientId: string;
-  sourceBankAccountId: string;
   hasSecret: boolean;
 }
 

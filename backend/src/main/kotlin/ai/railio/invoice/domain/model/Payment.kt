@@ -10,25 +10,17 @@ enum class PaymentStatus {
     /** Accepted, not yet evaluated. */
     CREATED,
 
-    /** The policy engine is deciding. */
-    POLICY_CHECKING,
-
     /** Handed to the provider. */
     EXECUTING,
 
     /** A policy requires a human decision; see [TransferResult.approvalId]. */
     AWAITING_APPROVAL,
 
-    /** The provider needs an interactive step (e.g. OTP or redirect). */
-    AWAITING_ACTION,
-
     /**
-     * The provider needs a one-time password.
-     *
-     * Payments-only: a transfer reports [AWAITING_ACTION] instead. Kept so the payments API can share
-     * this type.
+     * The provider needs an interactive step. An OTP arrives here with `actionType: "OTP"` — a
+     * transfer has no separate `AWAITING_OTP` state.
      */
-    AWAITING_OTP,
+    AWAITING_ACTION,
 
     /** Money moved. */
     COMPLETED,
@@ -50,7 +42,7 @@ enum class PaymentStatus {
 
     private companion object {
         val TERMINAL = setOf(COMPLETED, FAILED, CANCELLED, EXPIRED)
-        val PARKED = setOf(AWAITING_APPROVAL, AWAITING_ACTION, AWAITING_OTP)
+        val PARKED = setOf(AWAITING_APPROVAL, AWAITING_ACTION)
     }
 }
 
@@ -68,6 +60,9 @@ enum class PaymentPurpose { PURCHASE, INVOICE, SUBSCRIPTION, TRANSFER, BILL_PAYM
  * execution layer's policy engine decides whether it executes, is denied, or parks for a human.
  *
  * @property invoiceId Source invoice id; also the basis of the idempotency key.
+ * @property sourceBankAccountId The funding account, discovered from the execution layer rather than
+ *   configured: assignment and defaults change, and the server applies no default of its own, so the
+ *   field must always be sent explicitly.
  * @property detail Human-readable description.
  * @property amount Amount to transfer, in whole Rial. Serialized as a decimal string on the wire.
  * @property currency ISO-ish currency label.
@@ -81,6 +76,7 @@ enum class PaymentPurpose { PURCHASE, INVOICE, SUBSCRIPTION, TRANSFER, BILL_PAYM
  */
 data class TransferRequest(
     val invoiceId: String,
+    val sourceBankAccountId: String,
     val detail: String,
     val amount: Long,
     val currency: String = "IRR",

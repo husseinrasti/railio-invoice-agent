@@ -26,7 +26,6 @@ fun testConfig(
     railio: RailioSettings = RailioSettings(
         baseUrl = "https://railio.test",
         clientId = "agt_test",
-        sourceBankAccountId = "bank-acc-1",
     ),
 ): AppConfig = AppConfig(
     sourceAccount = SourceAccount(name = "Test User", accountNumber = "IR120000000000000000000099", balance = balance),

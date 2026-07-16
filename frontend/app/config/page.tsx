@@ -36,7 +36,6 @@ export default function ConfigPage() {
         railio: {
           baseUrl: config.railio.baseUrl,
           clientId: config.railio.clientId,
-          sourceBankAccountId: config.railio.sourceBankAccountId,
         },
         ...(secret ? { agentSecret: secret } : {}),
       };
@@ -78,13 +77,11 @@ export default function ConfigPage() {
             onChange={(e) => update({ railio: { ...config.railio, clientId: e.target.value } })}
           />
         </Field>
-        <Field label="Source bank account ID (linked in the Railio dashboard)">
-          <input
-            className="input font-mono"
-            value={config.railio.sourceBankAccountId}
-            onChange={(e) => update({ railio: { ...config.railio, sourceBankAccountId: e.target.value } })}
-          />
-        </Field>
+        <p className="text-xs text-slate-400">
+          The account payments are drawn from is <strong>discovered</strong> from Railio at payment
+          time — there is nothing to set here. The agent prefers an account assigned to it, then the
+          tenant default. Add and assign accounts in the Railio dashboard.
+        </p>
         <p className="text-xs text-slate-400">
           Client secret:{" "}
           {config.railio.hasSecret ? (

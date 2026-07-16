@@ -17,15 +17,16 @@ data class OllamaSettings(
  * The client **secret is deliberately absent**: it is read from the environment only, so it is never
  * written to `config.json` and never returned by the config API.
  *
+ * There is no source bank account here on purpose: the agent **discovers** its funding account from
+ * Railio at proposal time. Assignment and defaults change in the dashboard, so a pinned id would go
+ * stale silently — and the agent may not edit bank accounts anyway.
+ *
  * @property baseUrl Base URL of the Railio API.
  * @property clientId OAuth2 client id of this agent's credential (`agt_…`).
- * @property sourceBankAccountId Id of the linked, ACTIVE Railio bank account funds are drawn from.
- *   A human links this in the dashboard; the agent cannot create bank accounts.
  */
 data class RailioSettings(
     val baseUrl: String = "http://localhost:8080",
     val clientId: String = "",
-    val sourceBankAccountId: String = "",
 )
 
 /**
@@ -37,7 +38,7 @@ data class RailioSettings(
  * so mirroring them locally would be misleading.
  *
  * @property sourceAccount Funding account and balance. Used by the **mock** provider only; with
- *   Railio the funds live behind [RailioSettings.sourceBankAccountId].
+ *   Railio the funds come from a bank account the agent discovers at proposal time.
  * @property depositAccounts Destination **address book**: maps the deposit name printed on an invoice
  *   to the IBAN to pay. Not a trust gate — trust is a Railio policy decision.
  * @property railio Railio API connection settings.

@@ -40,13 +40,12 @@ data class OllamaSettingsDto(
 data class RailioSettingsDto(
     val baseUrl: String = "http://localhost:8080",
     val clientId: String = "",
-    val sourceBankAccountId: String = "",
 )
 
 fun AppConfigDto.toDomain(): AppConfig = AppConfig(
     sourceAccount = SourceAccount(sourceAccount.name, sourceAccount.accountNumber, sourceAccount.balance),
     depositAccounts = depositAccounts.map { DepositAccount(it.name, it.accountNumber) },
-    railio = RailioSettings(railio.baseUrl, railio.clientId, railio.sourceBankAccountId),
+    railio = RailioSettings(railio.baseUrl, railio.clientId),
     ollama = OllamaSettings(ollama.baseUrl, ollama.model),
     apiUrl = apiUrl,
     agentSecret = agentSecret,
@@ -55,7 +54,7 @@ fun AppConfigDto.toDomain(): AppConfig = AppConfig(
 fun AppConfig.toDto(): AppConfigDto = AppConfigDto(
     sourceAccount = SourceAccountDto(sourceAccount.name, sourceAccount.accountNumber, sourceAccount.balance),
     depositAccounts = depositAccounts.map { DepositAccountDto(it.name, it.accountNumber) },
-    railio = RailioSettingsDto(railio.baseUrl, railio.clientId, railio.sourceBankAccountId),
+    railio = RailioSettingsDto(railio.baseUrl, railio.clientId),
     ollama = OllamaSettingsDto(ollama.baseUrl, ollama.model),
     apiUrl = apiUrl,
     agentSecret = agentSecret,

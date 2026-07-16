@@ -1,6 +1,8 @@
 package ai.railio.invoice.data.payment
 
+import ai.railio.invoice.domain.model.BankAccountStatus
 import ai.railio.invoice.domain.model.PaymentStatus
+import ai.railio.invoice.domain.model.SourceBankAccount
 import ai.railio.invoice.domain.model.TransferRequest
 import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.ConfigRepository
@@ -44,6 +46,22 @@ class MockPaymentProvider(
 
     /** A tracked operation plus when it may leave the parked state. */
     private data class Tracked(val result: TransferResult, val releaseAt: Instant?)
+
+    /** Presents the configured funding account as the single shared, default, ACTIVE source. */
+    override suspend fun listSourceAccounts(): List<SourceBankAccount> {
+        val source = config.get().sourceAccount
+        return listOf(
+            SourceBankAccount(
+                id = "mock-source",
+                bankName = source.name,
+                iban = source.accountNumber,
+                agentId = null,
+                isDefault = true,
+                status = BankAccountStatus.ACTIVE,
+                currency = "IRR",
+            ),
+        )
+    }
 
     private val mutex = Mutex()
     private val tracked = mutableMapOf<String, Tracked>()

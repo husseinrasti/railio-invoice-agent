@@ -72,7 +72,7 @@ class InvoiceAgentService(
             return
         }
 
-        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, final, ReceiptKind.FINAL))))
+        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, final, ReceiptKind.FINAL, state.sourceLabel))))
         streamNarration(runId, outcomeText(final))
     }
 
