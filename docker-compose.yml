@@ -22,7 +22,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen3.5:4b}"]
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-gemma4:12b}"]
     restart: "no"
 
   backend:
@@ -32,8 +32,14 @@ services:
       - "${BACKEND_PORT:-8080}:8080"
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:4b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
       AGENT_SECRET: ${AGENT_SECRET:-}
+      # `mock` runs fully offline; `railio` proposes real transfers to Railio.
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      # Passed through from the host env only — never baked into the image or config.json.
+      RAILIO_CLIENT_SECRET: ${RAILIO_CLIENT_SECRET:-}
+      MOCK_APPROVAL_THRESHOLD: ${MOCK_APPROVAL_THRESHOLD:-10000000}
+      MOCK_APPROVAL_DELAY_SECONDS: ${MOCK_APPROVAL_DELAY_SECONDS:-8}
     depends_on:
       ollama:
         condition: service_healthy
