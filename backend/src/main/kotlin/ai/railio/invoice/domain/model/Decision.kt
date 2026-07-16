@@ -1,46 +1,39 @@
 package ai.railio.invoice.domain.model
 
-/** Why a payment needs manual approval. A decision may carry more than one reason. */
-enum class ApprovalReason {
-    /** The invoice's deposit account name is not among the configured trusted accounts. */
-    UNKNOWN_DEPOSIT_ACCOUNT,
-
-    /** The amount exceeds the configured auto-approval cap. */
-    ABOVE_CAP,
-}
-
 /**
- * Outcome of evaluating an [Invoice] against the current [AppConfig].
+ * A transfer parked by the execution layer's policy engine, waiting on a human decision.
  *
- * This is computed server-side and is authoritative: the LLM may narrate it but cannot override it.
+ * This is **read-only**: the agent cannot approve it. Its machine identity is deliberately not
+ * granted an approve scope, so a human decides in the Railio dashboard and the agent learns the
+ * outcome by polling. Rendered as a status card, not a prompt with buttons.
  *
- * @property invoice The evaluated invoice.
- * @property requiresApproval True when the payment must be confirmed by the user before execution.
- * @property reasons Zero or more reasons approval is required (empty when auto-payable).
- * @property matchedDepositAccount The trusted deposit account matched by name, or null if unknown.
- */
-data class PaymentDecision(
-    val invoice: Invoice,
-    val requiresApproval: Boolean,
-    val reasons: List<ApprovalReason>,
-    val matchedDepositAccount: DepositAccount?,
-)
-
-/**
- * A request presented to the user to approve or reject a payment, rendered as an approval card.
- *
- * @property paymentId The pending payment awaiting a decision.
+ * @property paymentId The parked operation.
+ * @property approvalId The approval a human must decide, when the execution layer reported one.
  * @property invoice The invoice being paid.
- * @property amount Amount to be transferred, in Rial.
- * @property depositAccountName Destination label as it appeared on the invoice.
+ * @property amount Amount awaiting approval, in Rial.
+ * @property depositAccountName Destination label as printed on the invoice.
  * @property depositId Deposit reference id.
- * @property reasons Why approval is required.
  */
-data class ApprovalRequest(
+data class AwaitingApproval(
     val paymentId: String,
+    val approvalId: String?,
     val invoice: Invoice,
     val amount: Long,
     val depositAccountName: String,
     val depositId: String,
-    val reasons: List<ApprovalReason>,
+)
+
+/**
+ * A transfer parked because the provider needs an interactive step (OTP, redirect).
+ *
+ * The agent relays this to a human; it never invents an OTP.
+ *
+ * @property paymentId The parked operation.
+ * @property actionType What the provider asked for.
+ * @property actionContext Opaque provider context describing the step.
+ */
+data class AwaitingAction(
+    val paymentId: String,
+    val actionType: String?,
+    val actionContext: String?,
 )

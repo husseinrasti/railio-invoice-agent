@@ -17,12 +17,12 @@ class UpdateConfigUseCaseTest {
     @Test
     fun `persists a valid config`() = runTest {
         val repo = FakeConfigRepository(testConfig())
-        val updated = testConfig(cap = 42_000_000)
+        val updated = testConfig(balance = 42_000_000)
 
         val result = UpdateConfigUseCase(repo)(updated)
 
-        assertEquals(42_000_000, result.autoApprovalCap)
-        assertEquals(42_000_000, repo.get().autoApprovalCap)
+        assertEquals(42_000_000, result.sourceAccount.balance)
+        assertEquals(42_000_000, repo.get().sourceAccount.balance)
     }
 
     @Test
@@ -36,13 +36,6 @@ class UpdateConfigUseCaseTest {
     fun `allows exactly three deposit accounts`() = runTest {
         val result = useCase()(testConfig(deposits = deposits(3)))
         assertEquals(3, result.depositAccounts.size)
-    }
-
-    @Test
-    fun `rejects negative cap`() = runTest {
-        assertFailsWith<IllegalArgumentException> {
-            useCase()(testConfig(cap = -1))
-        }
     }
 
     @Test

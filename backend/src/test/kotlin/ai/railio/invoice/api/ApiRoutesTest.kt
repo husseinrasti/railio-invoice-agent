@@ -37,10 +37,10 @@ class ApiRoutesTest {
 
     private fun ApplicationTestBuilder.boot() = application { module() }
 
-    private fun validConfig(cap: Long = 50_000_000, secret: String? = null) = buildString {
-        append("""{"sourceAccount":{"name":"T","accountNumber":"IR1","balance":100},""")
+    private fun validConfig(balance: Long = 100, secret: String? = null) = buildString {
+        append("""{"sourceAccount":{"name":"T","accountNumber":"IR1","balance":$balance},""")
         append(""""depositAccounts":[{"name":"Landlord","accountNumber":"IR2"}],""")
-        append(""""autoApprovalCap":$cap""")
+        append(""""railio":{"baseUrl":"https://railio.test","clientId":"agt_1","sourceBankAccountId":"bank-1"}""")
         if (secret != null) append(""","agentSecret":"$secret"""")
         append("}")
     }
@@ -72,15 +72,27 @@ class ApiRoutesTest {
     fun `config put persists and rejects invalid`() = testApplication {
         boot()
         val ok = client.put("/api/config") {
-            contentType(ContentType.Application.Json); setBody(validConfig(cap = 42))
+            contentType(ContentType.Application.Json); setBody(validConfig(balance = 42))
         }
         assertEquals(HttpStatusCode.OK, ok.status)
-        assertTrue(client.get("/api/config").bodyAsText().contains("\"autoApprovalCap\":42"))
+        assertTrue(client.get("/api/config").bodyAsText().contains("\"balance\":42"))
 
         val bad = client.put("/api/config") {
-            contentType(ContentType.Application.Json); setBody(validConfig(cap = -1))
+            contentType(ContentType.Application.Json); setBody(validConfig(balance = -1))
         }
         assertEquals(HttpStatusCode.BadRequest, bad.status)
+    }
+
+    @Test
+    fun `config never exposes the railio client secret`() = testApplication {
+        boot()
+        client.put("/api/config") {
+            contentType(ContentType.Application.Json); setBody(validConfig())
+        }
+        val body = client.get("/api/config").bodyAsText()
+
+        assertTrue(body.contains("\"clientId\":\"agt_1\""))
+        assertTrue(!body.contains("clientSecret"), "the Railio secret must never reach the UI")
     }
 
     @Test

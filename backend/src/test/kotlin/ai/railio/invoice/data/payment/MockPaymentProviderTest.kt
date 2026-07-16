@@ -1,107 +1,103 @@
 package ai.railio.invoice.data.payment
 
-import ai.railio.invoice.domain.model.DepositAccount
-import ai.railio.invoice.domain.model.PaymentRequest
 import ai.railio.invoice.domain.model.PaymentStatus
-import ai.railio.invoice.domain.model.ReceiptKind
+import ai.railio.invoice.domain.model.TransferRequest
 import ai.railio.invoice.support.FakeConfigRepository
 import ai.railio.invoice.support.testConfig
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class MockPaymentProviderTest {
 
-    private val fixedNow = Instant.parse("2026-07-07T10:00:00Z")
+    private var clock = Instant.parse("2026-07-16T10:00:00Z")
 
-    private fun provider(balance: Long = 100_000_000): Pair<MockPaymentProvider, FakeConfigRepository> {
-        val repo = FakeConfigRepository(testConfig(balance = balance))
-        val provider = MockPaymentProvider(
-            config = repo,
-            now = { fixedNow },
-            idGenerator = { "pay-test" },
-            trackingGenerator = { "TRK-TEST123456" },
-        )
-        return provider to repo
-    }
-
-    private fun request(
-        amount: Long,
-        requiresApproval: Boolean,
-        deposit: DepositAccount? = DepositAccount("Landlord", "IR-dep"),
-    ) = PaymentRequest(
-        invoiceId = "inv-1",
-        detail = "rent",
+    private fun request(amount: Long = 1_000_000, invoiceId: String = "inv-1") = TransferRequest(
+        invoiceId = invoiceId,
+        detail = "Test invoice",
         amount = amount,
-        depositAccountName = deposit?.name ?: "Stranger",
+        destinationIdentifier = "IR120000000000000000000001",
+        destinationAccountHolderName = "Landlord",
         depositId = "DEP-1",
-        resolvedDepositAccount = deposit,
-        requiresApproval = requiresApproval,
+    )
+
+    private fun provider(config: FakeConfigRepository, threshold: Long = 10_000_000) = MockPaymentProvider(
+        config = config,
+        approvalThreshold = threshold,
+        approvalDelay = 8.seconds,
+        now = { clock },
     )
 
     @Test
-    fun `checkBalance reflects configured balance`() = runTest {
-        val (provider, _) = provider(balance = 5_000_000)
-        assertTrue(provider.checkBalance(4_000_000).sufficient)
-        assertFalse(provider.checkBalance(6_000_000).sufficient)
-        assertEquals(5_000_000, provider.checkBalance(1).currentBalance)
+    fun `a transfer within policy completes and deducts the balance`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 5_000_000))
+        val result = provider(config).submitTransfer(request(amount = 1_000_000), "invoice-inv-1")
+
+        assertEquals(PaymentStatus.COMPLETED, result.status)
+        assertNotNull(result.providerReference)
+        assertEquals(4_000_000, config.get().sourceAccount.balance)
     }
 
     @Test
-    fun `auto-payable request creates PENDING payment with preview receipt`() = runTest {
-        val (provider, _) = provider()
-        val draft = provider.createPayment(request(1_000_000, requiresApproval = false))
+    fun `an amount above the threshold parks for approval without moving funds`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 500_000_000))
+        val result = provider(config).submitTransfer(request(amount = 50_000_000), "invoice-inv-1")
 
-        assertEquals(PaymentStatus.PENDING, draft.payment.status)
-        assertEquals(ReceiptKind.PREVIEW, draft.receipt.kind)
-        assertEquals("IR-dep", draft.receipt.depositAccount)
-        assertNull(draft.receipt.trackingCode)
+        assertEquals(PaymentStatus.AWAITING_APPROVAL, result.status)
+        assertNotNull(result.approvalId)
+        assertEquals(500_000_000, config.get().sourceAccount.balance, "parked money must not move")
     }
 
     @Test
-    fun `approval-required request creates AWAITING_APPROVAL payment`() = runTest {
-        val (provider, _) = provider()
-        val draft = provider.createPayment(request(50_000_000, requiresApproval = true, deposit = null))
+    fun `a parked transfer completes once its approval delay elapses`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 500_000_000))
+        val provider = provider(config)
+        val parked = provider.submitTransfer(request(amount = 50_000_000), "invoice-inv-1")
 
-        assertEquals(PaymentStatus.AWAITING_APPROVAL, draft.payment.status)
-        assertNull(draft.receipt.depositAccount)
+        assertEquals(PaymentStatus.AWAITING_APPROVAL, provider.getTransfer(parked.id).status)
+
+        clock += 10.seconds
+        val settled = provider.getTransfer(parked.id)
+
+        assertEquals(PaymentStatus.COMPLETED, settled.status)
+        assertEquals(450_000_000, config.get().sourceAccount.balance)
     }
 
     @Test
-    fun `execute deducts balance and issues successful final receipt`() = runTest {
-        val (provider, repo) = provider(balance = 10_000_000)
-        val draft = provider.createPayment(request(4_000_000, requiresApproval = false))
+    fun `the same idempotency key never pays twice`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 5_000_000))
+        val provider = provider(config)
 
-        val receipt = provider.execute(draft.payment.id)
+        val first = provider.submitTransfer(request(amount = 1_000_000), "invoice-inv-1")
+        val retry = provider.submitTransfer(request(amount = 1_000_000), "invoice-inv-1")
 
-        assertEquals(ReceiptKind.FINAL, receipt.kind)
-        assertEquals(PaymentStatus.SUCCESS, receipt.status)
-        assertEquals("TRK-TEST123456", receipt.trackingCode)
-        assertEquals(6_000_000, repo.get().sourceAccount.balance)
-        assertEquals(PaymentStatus.SUCCESS, provider.get(draft.payment.id)!!.status)
+        assertEquals(first.id, retry.id, "a retry must return the existing operation")
+        assertEquals(4_000_000, config.get().sourceAccount.balance, "the balance may only be deducted once")
     }
 
     @Test
-    fun `execute with insufficient balance fails without moving funds`() = runTest {
-        val (provider, repo) = provider(balance = 1_000_000)
-        val draft = provider.createPayment(request(5_000_000, requiresApproval = true, deposit = null))
+    fun `separate invoices pay separately`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 5_000_000))
+        val provider = provider(config)
 
-        val receipt = provider.execute(draft.payment.id)
+        provider.submitTransfer(request(amount = 1_000_000, invoiceId = "inv-1"), "invoice-inv-1")
+        provider.submitTransfer(request(amount = 1_000_000, invoiceId = "inv-2"), "invoice-inv-2")
 
-        assertEquals(PaymentStatus.FAILED, receipt.status)
-        assertNotNull(receipt.message)
-        assertEquals(1_000_000, repo.get().sourceAccount.balance, "balance must be untouched on failure")
+        assertEquals(3_000_000, config.get().sourceAccount.balance)
     }
 
     @Test
-    fun `executing an unknown payment throws`() = runTest {
-        val (provider, _) = provider()
-        assertFailsWith<IllegalArgumentException> { provider.execute("nope") }
+    fun `an insufficient balance fails without moving funds`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 500_000))
+        val result = provider(config).submitTransfer(request(amount = 1_000_000), "invoice-inv-1")
+
+        assertEquals(PaymentStatus.FAILED, result.status)
+        assertNull(result.providerReference)
+        assertEquals("PROVIDER_INSUFFICIENT_FUNDS", result.failureCode)
+        assertEquals(500_000, config.get().sourceAccount.balance)
     }
 }

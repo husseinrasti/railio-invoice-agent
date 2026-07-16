@@ -2,39 +2,36 @@ package ai.railio.invoice.domain.model
 
 import kotlin.time.Instant
 
-/** Whether a receipt previews an intended transfer or confirms a completed one. */
+/** Whether a receipt previews an intended transfer or reports its final state. */
 enum class ReceiptKind {
-    /** Shown before execution/approval so the user sees exactly what will be paid. */
+    /** Shown when the transfer is proposed, so the user sees exactly what was submitted. */
     PREVIEW,
 
-    /** Shown after execution; reflects the final [PaymentStatus]. */
+    /** Shown once the operation reaches a terminal state. */
     FINAL,
 }
 
 /**
- * A transfer receipt rendered as a card in chat, both as a pre-execution preview and as the final
- * confirmation.
+ * A transfer receipt rendered as a card in chat, both as a proposal preview and as the final outcome.
  *
- * @property paymentId The payment this receipt belongs to.
+ * @property paymentId The operation this receipt belongs to.
  * @property kind Preview or final.
- * @property status Payment status at the time the receipt was issued.
- * @property amount Amount transferred, in Rial.
- * @property sourceName Source account holder name.
- * @property sourceAccount Source account/IBAN number.
- * @property depositName Destination label.
+ * @property status Operation status at the time the receipt was issued.
+ * @property amount Amount, in Rial.
+ * @property sourceLabel Human-readable funding source (mock account name, or the linked bank account).
+ * @property depositName Destination label as printed on the invoice.
  * @property depositId Deposit reference id.
- * @property depositAccount Destination account/IBAN number, when the deposit is a known account.
+ * @property depositAccount Destination IBAN/account number.
  * @property issuedAt When the receipt was issued.
- * @property trackingCode Bank tracking code, present on a successful final receipt.
- * @property message Optional human-readable note (e.g. failure explanation).
+ * @property trackingCode Provider reference/tracking code, present once completed.
+ * @property message Optional human-readable note (e.g. why it failed).
  */
 data class Receipt(
     val paymentId: String,
     val kind: ReceiptKind,
     val status: PaymentStatus,
     val amount: Long,
-    val sourceName: String,
-    val sourceAccount: String,
+    val sourceLabel: String,
     val depositName: String,
     val depositId: String,
     val depositAccount: String?,

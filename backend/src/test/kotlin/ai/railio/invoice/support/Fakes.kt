@@ -3,6 +3,7 @@ package ai.railio.invoice.support
 import ai.railio.invoice.domain.model.AppConfig
 import ai.railio.invoice.domain.model.DepositAccount
 import ai.railio.invoice.domain.model.Invoice
+import ai.railio.invoice.domain.model.RailioSettings
 import ai.railio.invoice.domain.model.SourceAccount
 import ai.railio.invoice.domain.port.ConfigRepository
 
@@ -17,16 +18,20 @@ class FakeConfigRepository(initial: AppConfig) : ConfigRepository {
 
 /** Builds a test [AppConfig] with sensible defaults; override what a case cares about. */
 fun testConfig(
-    cap: Long = 10_000_000,
     balance: Long = 500_000_000,
     deposits: List<DepositAccount> = listOf(
         DepositAccount(name = "Landlord", accountNumber = "IR120000000000000000000001"),
         DepositAccount(name = "Utility", accountNumber = "IR120000000000000000000002"),
     ),
+    railio: RailioSettings = RailioSettings(
+        baseUrl = "https://railio.test",
+        clientId = "agt_test",
+        sourceBankAccountId = "bank-acc-1",
+    ),
 ): AppConfig = AppConfig(
     sourceAccount = SourceAccount(name = "Test User", accountNumber = "IR120000000000000000000099", balance = balance),
     depositAccounts = deposits,
-    autoApprovalCap = cap,
+    railio = railio,
 )
 
 /** Builds a test [Invoice]. */

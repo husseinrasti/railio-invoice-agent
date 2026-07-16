@@ -4,14 +4,17 @@ import ai.railio.invoice.agent.AgentRunState
 import ai.railio.invoice.agent.RunPhase
 import ai.railio.invoice.domain.model.AgentCard
 import ai.railio.invoice.domain.model.AgentEvent
-import ai.railio.invoice.domain.model.ApprovalReason
-import ai.railio.invoice.domain.model.ApprovalRequest
+import ai.railio.invoice.domain.model.AwaitingAction
+import ai.railio.invoice.domain.model.AwaitingApproval
 import ai.railio.invoice.domain.model.Invoice
 import ai.railio.invoice.domain.model.PaymentStatus
+import ai.railio.invoice.domain.model.ReceiptKind
+import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.AgentEventBus
-import ai.railio.invoice.domain.usecase.CreatePaymentUseCase
-import ai.railio.invoice.domain.usecase.EvaluateInvoiceUseCase
-import ai.railio.invoice.domain.usecase.ExecutePaymentUseCase
+import ai.railio.invoice.domain.port.PaymentProviderException
+import ai.railio.invoice.domain.port.UnknownDepositAccountException
+import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
+import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
@@ -19,26 +22,26 @@ import java.util.UUID
 import kotlin.time.Instant
 
 /**
- * The Koog tools the LLM calls to process an invoice. One instance is built per run and closes over
- * that run's [state] and [runId].
+ * The Koog tools the LLM calls to pay an invoice. One instance is built per run and closes over that
+ * run's [state] and [runId].
  *
- * The tools carry the agent's capabilities, but the **payment gate is enforced here, not by the LLM**:
- * [payNow] refuses to move money when approval is required and not yet granted, so even a misbehaving
- * model cannot exceed the cap or skip approval.
+ * The agent **proposes**; it never moves money and never approves anything. [payNow] submits the
+ * transfer to the execution layer, whose policy engine decides. If a policy parks the transfer for a
+ * human, the agent can only report it and wait — its machine identity has no approve scope, so there
+ * is no code path here that could bypass a policy even if the model tried.
  */
 class InvoiceAgentToolSet(
     private val runId: String,
     private val state: AgentRunState,
     private val bus: AgentEventBus,
-    private val evaluate: EvaluateInvoiceUseCase,
-    private val createPayment: CreatePaymentUseCase,
-    private val executePayment: ExecutePaymentUseCase,
+    private val submitTransfer: SubmitTransferUseCase,
+    private val buildReceipt: BuildReceiptUseCase,
 ) : ToolSet {
 
     @Tool
     @LLMDescription(
-        "Record the invoice you read from the user's message and check it against the payment policy. " +
-            "Call this FIRST, exactly once, with the fields copied from the invoice.",
+        "Record the invoice you read from the user's message. Call this FIRST, exactly once, with " +
+            "the fields copied from the invoice.",
     )
     suspend fun readInvoice(
         @LLMDescription("Short description of what is being paid") detail: String,
@@ -47,7 +50,7 @@ class InvoiceAgentToolSet(
         @LLMDescription("Deposit or reference id printed on the invoice") depositId: String,
         @LLMDescription("ISO-8601 due date (e.g. 2026-07-25T20:30:00Z) or empty string if none") expiresAt: String,
     ): String {
-        bus.emit(runId, AgentEvent.ToolCall("readInvoice", "Recording invoice and applying policy"))
+        bus.emit(runId, AgentEvent.ToolCall("readInvoice", "Recording invoice"))
         val invoice = Invoice(
             id = "inv-${UUID.randomUUID().toString().take(8)}",
             detail = detail,
@@ -58,76 +61,87 @@ class InvoiceAgentToolSet(
         )
         state.invoice = invoice
         bus.emit(runId, AgentEvent.Card(AgentCard.InvoiceParsed(invoice)))
-
-        val decision = evaluate(invoice)
-        state.decision = decision
-        val draft = createPayment(decision)
-        state.paymentId = draft.payment.id
-        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(draft.receipt)))
-
-        return if (decision.requiresApproval) {
-            "Invoice recorded. APPROVAL REQUIRED because ${reasonsText(decision.reasons)}. " +
-                "Call requestApproval next, then stop — do NOT call payNow."
-        } else {
-            "Invoice recorded and within policy (trusted deposit, within cap). Call payNow to complete the transfer."
-        }
+        return "Invoice recorded. Call payNow to submit it for payment."
     }
 
     @Tool
     @LLMDescription(
-        "Show the user an approval card for the pending payment. Call this only when readInvoice said " +
-            "approval is required, then end your turn and wait for the user's decision.",
-    )
-    suspend fun requestApproval(): String {
-        bus.emit(runId, AgentEvent.ToolCall("requestApproval", "Requesting user approval"))
-        val invoice = state.invoice ?: return "No invoice has been read yet. Call readInvoice first."
-        val decision = state.decision ?: return "No decision available."
-        val paymentId = state.paymentId ?: return "No payment created."
-        bus.emit(
-            runId,
-            AgentEvent.Card(
-                AgentCard.Approval(
-                    ApprovalRequest(
-                        paymentId = paymentId,
-                        invoice = invoice,
-                        amount = invoice.amount,
-                        depositAccountName = invoice.depositAccountName,
-                        depositId = invoice.depositId,
-                        reasons = decision.reasons,
-                    ),
-                ),
-            ),
-        )
-        state.phase = RunPhase.AWAITING_APPROVAL
-        return "Approval card shown. Stop now and wait for the user; do not call payNow."
-    }
-
-    @Tool
-    @LLMDescription(
-        "Execute the bank transfer for the recorded invoice. Valid only when the invoice is within " +
-            "policy, or the user has already approved it.",
+        "Submit the recorded invoice for payment. The payment system decides whether it executes, is " +
+            "denied, or needs a human's approval — you cannot approve it yourself.",
     )
     suspend fun payNow(): String {
-        bus.emit(runId, AgentEvent.ToolCall("payNow", "Executing the transfer"))
-        val paymentId = state.paymentId ?: return "No payment to execute. Call readInvoice first."
-        val decision = state.decision
-        if (decision?.requiresApproval == true && !state.approved) {
-            return "Refused: this payment needs the user's approval first. Call requestApproval and stop."
+        bus.emit(runId, AgentEvent.ToolCall("payNow", "Proposing the transfer"))
+        val invoice = state.invoice ?: return "No invoice recorded yet. Call readInvoice first."
+
+        val result = try {
+            submitTransfer(invoice)
+        } catch (e: UnknownDepositAccountException) {
+            state.phase = RunPhase.DONE
+            return "Cannot pay: no deposit account named '${e.depositAccountName}' is configured. " +
+                "Ask the user to add its IBAN on the Config page."
+        } catch (e: PaymentProviderException) {
+            state.phase = RunPhase.DONE
+            return "The payment system rejected the request (${e.code}): ${e.message}. " +
+                if (e.retryable) "This may be temporary." else "This will not succeed on retry; a human needs to look at it."
         }
-        val receipt = executePayment(paymentId)
-        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(receipt)))
-        state.phase = RunPhase.DONE
-        return if (receipt.status == PaymentStatus.SUCCESS) {
-            "Transfer succeeded. Tracking code ${receipt.trackingCode}."
-        } else {
-            "Transfer failed: ${receipt.message}. No funds were moved."
-        }
+
+        state.transferId = result.id
+        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, result, ReceiptKind.PREVIEW))))
+        return report(invoice, result)
     }
 
-    private fun reasonsText(reasons: List<ApprovalReason>): String = reasons.joinToString(" and ") {
-        when (it) {
-            ApprovalReason.UNKNOWN_DEPOSIT_ACCOUNT -> "the deposit account is not in the trusted list"
-            ApprovalReason.ABOVE_CAP -> "the amount is above the auto-approval cap"
+    /** Turns the state the transfer landed in into an instruction for the model and a card for the user. */
+    private suspend fun report(invoice: Invoice, result: TransferResult): String = when (result.status) {
+        PaymentStatus.COMPLETED -> {
+            state.phase = RunPhase.DONE
+            "Transfer completed. Reference ${result.providerReference}."
+        }
+
+        PaymentStatus.FAILED -> {
+            state.phase = RunPhase.DONE
+            if (result.isPolicyDenial) {
+                // A policy denial is deterministic: an identical retry fails identically, forever.
+                "Denied by policy: ${result.failureReason}. Do not retry — tell the user a human must review it."
+            } else {
+                "The transfer failed: ${result.failureReason}. No funds moved."
+            }
+        }
+
+        PaymentStatus.AWAITING_APPROVAL -> {
+            bus.emit(
+                runId,
+                AgentEvent.Card(
+                    AgentCard.ApprovalPending(
+                        AwaitingApproval(
+                            paymentId = result.id,
+                            approvalId = result.approvalId,
+                            invoice = invoice,
+                            amount = result.amount,
+                            depositAccountName = invoice.depositAccountName,
+                            depositId = invoice.depositId,
+                        ),
+                    ),
+                ),
+            )
+            state.phase = RunPhase.AWAITING_REMOTE
+            "A policy requires a human to approve this payment in Railio. Tell the user it is awaiting " +
+                "approval and that you will report the outcome. Stop now."
+        }
+
+        PaymentStatus.AWAITING_OTP, PaymentStatus.AWAITING_ACTION -> {
+            bus.emit(
+                runId,
+                AgentEvent.Card(
+                    AgentCard.ActionPending(AwaitingAction(result.id, result.actionType, result.actionContext)),
+                ),
+            )
+            state.phase = RunPhase.AWAITING_REMOTE
+            "The payment provider needs a step from a human (${result.actionType}). Tell the user and stop."
+        }
+
+        else -> {
+            state.phase = RunPhase.AWAITING_REMOTE
+            "The payment is in flight (${result.status}). Tell the user you are waiting for it to settle, then stop."
         }
     }
 }

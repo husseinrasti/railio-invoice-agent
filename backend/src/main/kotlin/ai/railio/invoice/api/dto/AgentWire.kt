@@ -2,7 +2,8 @@ package ai.railio.invoice.api.dto
 
 import ai.railio.invoice.domain.model.AgentCard
 import ai.railio.invoice.domain.model.AgentEvent
-import ai.railio.invoice.domain.model.ApprovalRequest
+import ai.railio.invoice.domain.model.AwaitingAction
+import ai.railio.invoice.domain.model.AwaitingApproval
 import ai.railio.invoice.domain.model.Receipt
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
@@ -14,8 +15,7 @@ data class ReceiptView(
     val kind: String,
     val status: String,
     val amount: Long,
-    val sourceName: String,
-    val sourceAccount: String,
+    val sourceLabel: String,
     val depositName: String,
     val depositId: String,
     val depositAccount: String? = null,
@@ -24,15 +24,27 @@ data class ReceiptView(
     val message: String? = null,
 )
 
-/** Approval request as sent to the UI's approval card. */
+/**
+ * A transfer parked for a human's approval, as sent to the UI.
+ *
+ * Rendered as read-only status: approval happens in the Railio dashboard, not here.
+ */
 @Serializable
-data class ApprovalView(
+data class ApprovalPendingView(
     val paymentId: String,
+    val approvalId: String? = null,
     val invoice: InvoiceView,
     val amount: Long,
     val depositAccountName: String,
     val depositId: String,
-    val reasons: List<String>,
+)
+
+/** A transfer parked on an interactive provider step a human must complete. */
+@Serializable
+data class ActionPendingView(
+    val paymentId: String,
+    val actionType: String? = null,
+    val actionContext: String? = null,
 )
 
 fun Receipt.toView(): ReceiptView = ReceiptView(
@@ -40,8 +52,7 @@ fun Receipt.toView(): ReceiptView = ReceiptView(
     kind = kind.name,
     status = status.name,
     amount = amount,
-    sourceName = sourceName,
-    sourceAccount = sourceAccount,
+    sourceLabel = sourceLabel,
     depositName = depositName,
     depositId = depositId,
     depositAccount = depositAccount,
@@ -50,13 +61,19 @@ fun Receipt.toView(): ReceiptView = ReceiptView(
     message = message,
 )
 
-fun ApprovalRequest.toView(): ApprovalView = ApprovalView(
+fun AwaitingApproval.toView(): ApprovalPendingView = ApprovalPendingView(
     paymentId = paymentId,
+    approvalId = approvalId,
     invoice = invoice.toView(),
     amount = amount,
     depositAccountName = depositAccountName,
     depositId = depositId,
-    reasons = reasons.map { it.name },
+)
+
+fun AwaitingAction.toView(): ActionPendingView = ActionPendingView(
+    paymentId = paymentId,
+    actionType = actionType,
+    actionContext = actionContext,
 )
 
 /** A card payload; exactly one of the nested fields is populated per [kind]. */
@@ -64,7 +81,8 @@ fun ApprovalRequest.toView(): ApprovalView = ApprovalView(
 data class CardWire(
     val kind: String,
     val invoice: InvoiceView? = null,
-    val approval: ApprovalView? = null,
+    val approvalPending: ApprovalPendingView? = null,
+    val actionPending: ActionPendingView? = null,
     val receipt: ReceiptView? = null,
 )
 
@@ -93,6 +111,7 @@ fun AgentEvent.toWire(json: Json): WireEvent = when (this) {
 
 private fun AgentCard.toWire(): CardWire = when (this) {
     is AgentCard.InvoiceParsed -> CardWire(kind = "invoice", invoice = invoice.toView())
-    is AgentCard.Approval -> CardWire(kind = "approval", approval = request.toView())
+    is AgentCard.ApprovalPending -> CardWire(kind = "approval_pending", approvalPending = awaiting.toView())
+    is AgentCard.ActionPending -> CardWire(kind = "action_pending", actionPending = awaiting.toView())
     is AgentCard.ReceiptIssued -> CardWire(kind = "receipt", receipt = receipt.toView())
 }
