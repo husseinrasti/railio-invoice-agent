@@ -74,6 +74,7 @@ lifecycle to the server log. Cards render inline in the chat; logs stream into t
 |---|---|
 | What the invoice says | The LLM (extraction only) |
 | Which IBAN a deposit name maps to | This app's address book (Config page) |
+| Which account the money comes from | **Railio** — discovered per payment, per the agent's own visibility |
 | Whether the payment is allowed, and its limits | **Railio policy** — set by a human in the dashboard |
 | Approving a parked payment | **A human**, in the Railio dashboard |
 | Executing the transfer | **Railio** |
@@ -86,6 +87,14 @@ those calls regardless of what the model attempts.
 
 - **Idempotency** — every proposal sends `Idempotency-Key: invoice-<id>`, keyed to the *business
   event*, not the attempt. A timeout + retry returns the existing transfer instead of paying twice.
+  This is not theoretical: against the live API the model called `payNow` twice in *both* test runs.
+  The invoice id is therefore derived from the invoice itself (deposit id + amount), never minted
+  fresh, so a re-read collapses onto the same key.
+- **The source is discovered** (`GET /api/v1/bank-accounts`), never pinned. Railio filters the list
+  to shared accounts plus this agent's own, and applies no default of its own — so the agent picks
+  (assigned-to-me → tenant default → any ACTIVE match) and always sends the id explicitly.
+- **Card numbers never enter the app.** Identifiers come back unmasked; the bank-account DTO omits
+  `cardNumber` so a PAN is dropped at the boundary rather than trusted not to reach a log or prompt.
 - **Money is a decimal string** (`"5000000"`), never a float; the tenant comes from the token, never
   the body.
 - **A policy denial is not retried.** It is deterministic — an identical retry fails identically, and
@@ -193,7 +202,9 @@ open <http://localhost:3000>.
 
 All settings have sensible defaults; override via `.env` (see `.env.example`) or the **Config** page:
 
-- **Railio** — API base URL, client id (`agt_…`), and the linked source bank account id.
+- **Railio** — API base URL and client id (`agt_…`). The account payments are drawn from is
+  **discovered**, not configured: assignment and defaults change in the dashboard, so a pinned id
+  would go stale silently.
 - **Deposit accounts** — up to three, an address book mapping the deposit name on an invoice to the
   IBAN to pay. *Not* a trust list.
 - **Source account** — name, Sheba/IBAN, balance. **Mock provider only**; with Railio the funds come
@@ -228,10 +239,13 @@ A human does these first — the agent cannot:
 
 1. **Agents → New agent** (category `INVOICE`) → **New credential** with scopes `transfers:create`
    and `transfers:read`. The secret is shown once; export it as `RAILIO_CLIENT_SECRET`.
-2. **Bank accounts → Link** the source account; confirm it is `ACTIVE`, and put its id in the Config
-   page.
+2. **Bank accounts → Add bank account** (needs an IBAN). Choose **Available to** — *All agents*, or
+   *One agent* to scope it to this one — and optionally **Make default**. Nothing to copy: the agent
+   discovers it. It prefers an account assigned to itself, then the tenant default, then any `ACTIVE`
+   account in the right currency.
 3. **Policies** — set the guardrails: an `AMOUNT` per-transaction limit, an `APPROVAL_THRESHOLD`, and
-   a `PURPOSE` policy allowing `INVOICE`.
+   a `PURPOSE` policy allowing `INVOICE`. **Until an `APPROVAL_THRESHOLD` exists, nothing ever parks
+   for approval** — every proposal within the other limits simply executes.
 4. Set `PAYMENT_PROVIDER=railio`. Start against a **Sandbox** environment: it completes immediately,
    and breaching a limit exercises the `FAILED` / `AWAITING_APPROVAL` paths without real money.
 
