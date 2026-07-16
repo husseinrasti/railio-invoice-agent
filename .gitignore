@@ -29,5 +29,7 @@ IMPLEMENTATION*.md
 REPORT*.md
 
 # ---- Runtime state ----
-backend/data/
-data/
+# Anchored with a leading slash on purpose: a bare `data/` matches a directory named `data` at ANY
+# depth, which silently ignored the `ai/railio/invoice/data/**` source package.
+/backend/data/
+/data/
