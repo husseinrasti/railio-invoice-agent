@@ -1,6 +1,7 @@
 package ai.railio.invoice.data.railio
 
 import ai.railio.invoice.domain.model.PaymentStatus
+import ai.railio.invoice.domain.model.RailioSettings
 import ai.railio.invoice.domain.model.TransferRequest
 import ai.railio.invoice.domain.port.PaymentProviderException
 import ai.railio.invoice.support.FakeConfigRepository
@@ -62,7 +63,7 @@ class RailioPaymentProviderTest {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; encodeDefaults = true }) }
         }
         val config = FakeConfigRepository(testConfig())
-        val tokens = RailioTokenProvider(http, "https://railio.test", "agt_test", secret)
+        val tokens = RailioTokenProvider(http, config, { secret })
         return RailioPaymentProvider(http, tokens, config)
     }
 
@@ -177,6 +178,36 @@ class RailioPaymentProviderTest {
             HttpStatusCode.OK to """{"id":"trf_5","status":"EXECUTING","amount":"5000000"}"""
         }
         assertEquals(PaymentStatus.EXECUTING, provider.getTransfer("trf_5").status)
+    }
+
+    @Test
+    fun `editing the client id in config takes effect without a restart`() = runTest {
+        // Snapshotting the credential at construction meant the config UI silently did nothing and we
+        // kept authenticating as the previous (here: empty) client id.
+        val engine = MockEngine { req ->
+            recorded += req
+            if (req.url.encodedPath.endsWith("/oauth/token")) {
+                respond("""{"access_token":"tok_1","token_type":"Bearer","expires_in":3600}""", HttpStatusCode.OK, jsonHeaders)
+            } else {
+                respond(ByteReadChannel("""{"id":"trf_9","status":"COMPLETED","amount":"5000000"}"""), HttpStatusCode.Created, jsonHeaders)
+            }
+        }
+        val http = HttpClient(engine) {
+            expectSuccess = false
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; encodeDefaults = true }) }
+        }
+        val config = FakeConfigRepository(testConfig(railio = RailioSettings("https://railio.test", "agt_old", "bank-1")))
+        val provider = RailioPaymentProvider(http, RailioTokenProvider(http, config, { "sk_test" }), config)
+
+        provider.submitTransfer(request, "invoice-inv-1")
+        config.update(config.get().copy(railio = config.get().railio.copy(clientId = "agt_new")))
+        provider.submitTransfer(request, "invoice-inv-2")
+
+        val ids = recorded.filter { it.url.encodedPath.endsWith("/oauth/token") }
+            .map { (it.body as TextContent).text }
+        assertEquals(2, ids.size, "a new client id must trigger a fresh token")
+        assertTrue(ids[0].contains("agt_old"))
+        assertTrue(ids[1].contains("agt_new"))
     }
 
     @Test

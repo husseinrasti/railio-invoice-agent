@@ -64,16 +64,15 @@ class AppModule {
     }
 
     @Single
-    fun railioTokenProvider(http: HttpClient, config: ConfigRepository): RailioTokenProvider {
-        val railio = runBlocking { config.get().railio }
-        return RailioTokenProvider(
+    fun railioTokenProvider(http: HttpClient, config: ConfigRepository): RailioTokenProvider =
+        RailioTokenProvider(
             http = http,
-            baseUrl = railio.baseUrl,
-            clientId = railio.clientId,
+            // Read live: the base URL and client id are editable in the config UI, so snapshotting
+            // them here would authenticate as a stale credential until the next restart.
+            config = config,
             // Never from config.json — the secret lives in the environment only.
-            clientSecret = Env.railioClientSecret,
+            secret = { Env.railioClientSecret },
         )
-    }
 
     /**
      * Binds the money-movement boundary.

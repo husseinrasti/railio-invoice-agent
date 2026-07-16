@@ -1,8 +1,10 @@
 package ai.railio.invoice.data.railio
 
+import ai.railio.invoice.domain.port.ConfigRepository
 import ai.railio.invoice.domain.port.PaymentProviderException
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -39,39 +41,58 @@ private data class TokenResponse(
  * rate-limited. The token encodes the tenant, agent, and scopes — which is why a transfer request
  * never carries a tenant id.
  *
- * @param baseUrl Railio API base URL.
- * @param clientId Credential's client id.
- * @param clientSecret Credential's secret, supplied from the environment/secret manager.
+ * The base URL and client id are read from [config] on each fetch, **not** snapshotted at
+ * construction: they are editable in the config UI, and a cached token is tied to the credential that
+ * produced it. The cache is therefore keyed by (baseUrl, clientId), so editing either takes effect
+ * immediately instead of silently authenticating as the previous one until a restart.
+ *
+ * @param secret Supplies the client secret from the environment (never from stored config).
  */
 class RailioTokenProvider(
     private val http: HttpClient,
-    private val baseUrl: String,
-    private val clientId: String,
-    private val clientSecret: String,
+    private val config: ConfigRepository,
+    private val secret: () -> String,
     private val now: () -> Instant = { Clock.System.now() },
 ) {
+    private data class Credential(val baseUrl: String, val clientId: String)
+
     private val log = LoggerFactory.getLogger(RailioTokenProvider::class.java)
     private val mutex = Mutex()
     private var cached: String? = null
+    private var cachedFor: Credential? = null
     private var expiresAt: Instant = Instant.DISTANT_PAST
 
-    /** Returns a valid token, fetching a new one if the cache is empty or close to expiry. */
+    /** Returns a valid token, fetching a new one if the cache is empty, stale, or for another credential. */
     suspend fun token(): String = mutex.withLock {
+        val railio = config.get().railio
+        val credential = Credential(railio.baseUrl, railio.clientId)
         val current = cached
-        if (current != null && now() < expiresAt) return@withLock current
-        fetch()
+        if (current != null && cachedFor == credential && now() < expiresAt) return@withLock current
+        fetch(credential)
     }
 
     /** Drops the cached token so the next [token] call fetches a fresh one. Call this after a 401. */
     suspend fun invalidate() = mutex.withLock {
         cached = null
+        cachedFor = null
         expiresAt = Instant.DISTANT_PAST
     }
 
-    private suspend fun fetch(): String {
-        val response: HttpResponse = http.post("$baseUrl/oauth/token") {
+    private suspend fun fetch(credential: Credential): String {
+        val clientSecret = secret()
+        if (credential.clientId.isBlank() || clientSecret.isBlank()) {
+            throw PaymentProviderException(
+                code = "RAILIO_NOT_CONFIGURED",
+                message = "Railio is not configured: set the client id on the Config page and " +
+                    "RAILIO_CLIENT_SECRET in the environment.",
+                retryable = false,
+            )
+        }
+
+        val response: HttpResponse = http.post("${credential.baseUrl}/oauth/token") {
             contentType(ContentType.Application.Json)
-            setBody(TokenRequest(clientId = clientId, clientSecret = clientSecret))
+            header("Accept-Language", "en-US")
+            setBody(TokenRequest(clientId = credential.clientId, clientSecret = clientSecret))
         }
         if (response.status == HttpStatusCode.Unauthorized) {
             // Every credential failure (unknown client, wrong/rotated secret, revoked credential,
@@ -82,7 +103,7 @@ class RailioTokenProvider(
                 retryable = false,
             )
         }
-        if (!response.status.isSuccess()) {
+        if (response.status.value !in 200..299) {
             throw PaymentProviderException(
                 code = "TOKEN_REQUEST_FAILED",
                 message = "Railio token request failed with ${response.status}",
@@ -91,13 +112,12 @@ class RailioTokenProvider(
         }
         val body: TokenResponse = response.body()
         cached = body.accessToken
+        cachedFor = credential
         // Refresh a minute early so a token cannot expire mid-flight.
         expiresAt = now() + (body.expiresIn.seconds - LEEWAY)
-        log.info("Fetched Railio token, valid for {}s", body.expiresIn)
+        log.info("Fetched Railio token for {}, valid for {}s", credential.clientId, body.expiresIn)
         return body.accessToken
     }
-
-    private fun HttpStatusCode.isSuccess() = value in 200..299
 
     private companion object {
         val LEEWAY = 60.seconds

@@ -130,6 +130,40 @@ class InvoiceAgentToolSetTest {
     }
 
     @Test
+    fun `re-reading the same invoice yields the same id, so a retry cannot pay twice`() = runTest {
+        // Models do re-read an invoice after an error. A random id per read would mint a fresh
+        // idempotency key and Railio would pay the invoice a second time.
+        val config = FakeConfigRepository(testConfig())
+        val bus = InMemoryAgentEventBus()
+        val first = AgentRunState()
+        val second = AgentRunState()
+
+        tools(config, first, bus).readInvoice("Rent for July", 5_000_000, "Landlord", "RENT-2026-07", "")
+        tools(config, second, bus).readInvoice("Rent, July", 5_000_000, "Landlord", "RENT-2026-07", "")
+
+        assertEquals(first.invoice!!.id, second.invoice!!.id)
+        assertEquals(
+            SubmitTransferUseCase(MockPaymentProvider(config), config).idempotencyKey(first.invoice!!),
+            SubmitTransferUseCase(MockPaymentProvider(config), config).idempotencyKey(second.invoice!!),
+        )
+    }
+
+    @Test
+    fun `a second payNow in a run does not re-propose`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 100_000_000))
+        val state = AgentRunState()
+        val bus = InMemoryAgentEventBus()
+        val t = tools(config, state, bus)
+
+        t.readInvoice("Rent", 1_000_000, "Landlord", "RENT-1", "")
+        t.payNow()
+        val again = t.payNow()
+
+        assertTrue(again.contains("already submitted"))
+        assertEquals(99_000_000, config.get().sourceAccount.balance, "the invoice must be paid exactly once")
+    }
+
+    @Test
     fun `payNow before readInvoice does nothing`() = runTest {
         val config = FakeConfigRepository(testConfig())
         val bus = InMemoryAgentEventBus()

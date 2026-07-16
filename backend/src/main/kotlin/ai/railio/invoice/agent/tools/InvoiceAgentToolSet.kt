@@ -18,8 +18,10 @@ import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
-import java.util.UUID
 import kotlin.time.Instant
+
+/** Characters not safe to carry into an id/idempotency key. */
+private val NON_KEY_CHARS = Regex("[^a-z0-9]+")
 
 /**
  * The Koog tools the LLM calls to pay an invoice. One instance is built per run and closes over that
@@ -52,7 +54,7 @@ class InvoiceAgentToolSet(
     ): String {
         bus.emit(runId, AgentEvent.ToolCall("readInvoice", "Recording invoice"))
         val invoice = Invoice(
-            id = "inv-${UUID.randomUUID().toString().take(8)}",
+            id = invoiceId(depositId, amount),
             detail = detail,
             amount = amount,
             expiresAt = expiresAt.takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it) }.getOrNull() },
@@ -72,6 +74,13 @@ class InvoiceAgentToolSet(
     suspend fun payNow(): String {
         bus.emit(runId, AgentEvent.ToolCall("payNow", "Proposing the transfer"))
         val invoice = state.invoice ?: return "No invoice recorded yet. Call readInvoice first."
+
+        // Models retry. The stable idempotency key already means Railio would collapse a second
+        // proposal onto the first, but do not even ask: one proposal per run.
+        state.transferId?.let { existing ->
+            return "This invoice was already submitted (transfer $existing). Do not submit it again; " +
+                "report the outcome you were already given."
+        }
 
         val result = try {
             submitTransfer(invoice)
@@ -96,6 +105,19 @@ class InvoiceAgentToolSet(
         state.transferId = result.id
         bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, result, ReceiptKind.PREVIEW))))
         return report(invoice, result)
+    }
+
+    /**
+     * Derives a **stable** invoice id from the invoice's own business identity.
+     *
+     * This must never be random. The id becomes the idempotency key, and a model that re-reads the
+     * same invoice (which they do — they retry after an error) would otherwise mint a fresh id, and
+     * therefore a fresh key, and Railio would treat the second proposal as a new business event and
+     * pay the invoice twice. Same invoice in ⇒ same id out ⇒ the retry collapses onto one payment.
+     */
+    private fun invoiceId(depositId: String, amount: Long): String {
+        val reference = depositId.trim().lowercase().replace(NON_KEY_CHARS, "-").trim('-')
+        return "inv-${reference.ifBlank { "unknown" }}-$amount"
     }
 
     /** Turns the state the transfer landed in into an instruction for the model and a card for the user. */
