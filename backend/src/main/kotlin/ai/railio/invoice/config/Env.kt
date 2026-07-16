@@ -18,6 +18,17 @@ object Env {
     val paymentProvider: String get() = get("PAYMENT_PROVIDER", "mock").lowercase()
 
     /**
+     * Railio API base URL used to **seed** a fresh config; the Config page owns it thereafter.
+     *
+     * Needed because `localhost` means the container itself once dockerised, so the seeded default
+     * has to come from the deployment.
+     */
+    val railioBaseUrl: String get() = get("RAILIO_BASE_URL", "http://localhost:8080")
+
+    /** Railio client id used to seed a fresh config; editable on the Config page afterwards. */
+    val railioClientId: String get() = get("RAILIO_CLIENT_ID", "")
+
+    /**
      * Railio OAuth2 client secret.
      *
      * Read from the environment **only** — never persisted to `config.json` and never returned by the

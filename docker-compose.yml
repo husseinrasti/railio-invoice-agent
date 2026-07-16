@@ -1,22 +1,29 @@
 # Invoice Agent — full stack: Ollama (LLM) + backend (Ktor/Koog) + frontend (Next.js).
-# Service Dockerfiles are wired in a later step; this skeleton fixes the topology,
-# networking, and env plumbing.
+#
+# Ports avoid the Railio stack, which already owns 8080 (API), 3000/3001 (dashboards),
+# 5432 and 6379 on the host. Ours default to 8082 (backend) and 3002 (frontend).
 services:
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+    # Not published by default: the host usually already runs Ollama on 11434, and only the
+    # backend needs to reach this one (over the compose network).
+    expose:
+      - "11434"
     volumes:
-      - ollama-models:/root/.ollama
+      # Reuse the models already pulled on the host instead of re-downloading gigabytes into a
+      # fresh volume. Read-only, and only `models/` — the rest of ~/.ollama holds keys and history.
+      - ${HOME}/.ollama/models:/root/.ollama/models:ro
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 12
 
-  # Pulls the default model once, then exits. Keeps `ollama` service generic.
+  # Pulls the model into the named volume. Only needed when NOT reusing the host's models, so it
+  # sits behind a profile: `docker compose --profile pull up ollama-pull`.
   ollama-pull:
     image: ollama/ollama:latest
+    profiles: ["pull"]
     depends_on:
       ollama:
         condition: service_healthy
@@ -29,17 +36,28 @@ services:
     build:
       context: ./backend
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      - "${BACKEND_PORT:-8082}:8080"
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
       AGENT_SECRET: ${AGENT_SECRET:-}
       # `mock` runs fully offline; `railio` proposes real transfers to Railio.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      # Seeds a fresh config. `localhost` here would mean this container, so reach the host's
+      # Railio via host.docker.internal. The Config page owns these after first run.
+      RAILIO_BASE_URL: ${RAILIO_BASE_URL:-http://host.docker.internal:8080}
+      RAILIO_CLIENT_ID: ${RAILIO_CLIENT_ID:-}
       # Passed through from the host env only — never baked into the image or config.json.
       RAILIO_CLIENT_SECRET: ${RAILIO_CLIENT_SECRET:-}
+      CONFIG_PATH: /app/data/config.json
       MOCK_APPROVAL_THRESHOLD: ${MOCK_APPROVAL_THRESHOLD:-10000000}
       MOCK_APPROVAL_DELAY_SECONDS: ${MOCK_APPROVAL_DELAY_SECONDS:-8}
+    volumes:
+      # Keeps the edited config across restarts.
+      - backend-data:/app/data
+    extra_hosts:
+      # Docker Desktop provides this automatically; declaring it keeps Linux working too.
+      - "host.docker.internal:host-gateway"
     depends_on:
       ollama:
         condition: service_healthy
@@ -48,12 +66,12 @@ services:
     build:
       context: ./frontend
       args:
-        # Baked into the client bundle at build time (browser-reachable URL).
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        # Baked into the client bundle at build time, so it must be the URL the *browser* uses.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8082}
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3002}:3000"
     depends_on:
       - backend
 
 volumes:
-  ollama-models:
+  backend-data:

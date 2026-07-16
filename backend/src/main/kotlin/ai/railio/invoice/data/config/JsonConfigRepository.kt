@@ -1,5 +1,6 @@
 package ai.railio.invoice.data.config
 
+import ai.railio.invoice.config.Env
 import ai.railio.invoice.domain.model.AppConfig
 import ai.railio.invoice.domain.model.DepositAccount
 import ai.railio.invoice.domain.model.OllamaSettings
@@ -83,7 +84,9 @@ object ConfigDefaults {
             DepositAccount(name = "Utility Co", accountNumber = "IR930170000000001234567890"),
             DepositAccount(name = "Internet ISP", accountNumber = "IR350180000000009876543210"),
         ),
-        railio = RailioSettings(),
-        ollama = OllamaSettings(),
+        // Seeded from the environment: `localhost` is the container itself once dockerised, so the
+        // deployment has to supply the reachable Railio URL. The Config page owns it after that.
+        railio = RailioSettings(baseUrl = Env.railioBaseUrl, clientId = Env.railioClientId),
+        ollama = OllamaSettings(baseUrl = Env.ollamaBaseUrl, model = Env.ollamaModel),
     )
 }
