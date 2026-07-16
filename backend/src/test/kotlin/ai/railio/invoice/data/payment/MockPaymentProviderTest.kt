@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -97,7 +98,7 @@ class MockPaymentProviderTest {
 
         assertEquals(PaymentStatus.FAILED, result.status)
         assertNull(result.providerReference)
-        assertEquals("PROVIDER_INSUFFICIENT_FUNDS", result.failureCode)
+        assertTrue(result.failureReason!!.contains("Insufficient balance"))
         assertEquals(500_000, config.get().sourceAccount.balance)
     }
 }

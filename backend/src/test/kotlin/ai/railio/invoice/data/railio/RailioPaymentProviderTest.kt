@@ -107,16 +107,30 @@ class RailioPaymentProviderTest {
     }
 
     @Test
-    fun `a policy denial surfaces as a non-retryable failure`() = runTest {
+    fun `a policy denial surfaces as a non-retryable policy violation`() = runTest {
+        // Shape copied from the live API: a refused proposal is a 422 problem, not a FAILED transfer.
         val provider = provider {
             HttpStatusCode.UnprocessableEntity to
-                """{"code":"POLICY_DENIED","title":"Denied","message":"Over the limit","requestId":"req_1"}"""
+                """{"type":"https://errors.railio.ir/POLICY_VIOLATION","title":"Policy violation","status":422,
+                    "code":"POLICY_VIOLATION","locale":"en-US","message":"Over the limit","requestId":"req_1"}"""
         }
         val error = assertFailsWith<PaymentProviderException> { provider.submitTransfer(request, "invoice-inv-1") }
 
-        assertEquals("POLICY_DENIED", error.code)
+        assertEquals("POLICY_VIOLATION", error.code)
         assertEquals("req_1", error.requestId)
+        assertTrue(error.isPolicyDenial)
         assertFalse(error.retryable, "retrying a policy denial fails identically, forever")
+    }
+
+    @Test
+    fun `an English problem message is requested`() = runTest {
+        // Messages are localized and default to fa-IR; we render them in an English UI.
+        val provider = provider {
+            HttpStatusCode.Created to """{"id":"trf_7","status":"COMPLETED","amount":"5000000"}"""
+        }
+        provider.submitTransfer(request, "invoice-inv-1")
+
+        assertEquals("en-US", recorded.last().headers["Accept-Language"])
     }
 
     @Test

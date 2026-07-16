@@ -107,6 +107,9 @@ class RailioPaymentProvider(
         val token = tokens.token()
         val builder: HttpRequestBuilder.() -> Unit = {
             header("Authorization", "Bearer $token")
+            // Problem messages are localized and default to fa-IR; we surface them in an English UI.
+            // (We still branch on `code`, which is immutable — never on the message.)
+            header("Accept-Language", "en-US")
             block()
         }
         return if (post) http.post(url, builder) else http.get(url, builder)

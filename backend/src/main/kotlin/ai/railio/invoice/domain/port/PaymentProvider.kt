@@ -50,7 +50,23 @@ class PaymentProviderException(
     val requestId: String? = null,
     val retryable: Boolean = false,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : RuntimeException(message, cause) {
+
+    /**
+     * True when the policy engine refused the spend.
+     *
+     * This is where a denial actually arrives: Railio answers a denied proposal with a
+     * `422 POLICY_VIOLATION` problem, not with a `FAILED` transfer. Denials are deterministic — an
+     * identical retry fails identically, forever — so this escalates to a human instead of looping,
+     * which would also inflate velocity counters and mask the real cause.
+     */
+    val isPolicyDenial: Boolean get() = code == POLICY_VIOLATION
+
+    companion object {
+        /** Railio's immutable machine code for a policy refusal. */
+        const val POLICY_VIOLATION = "POLICY_VIOLATION"
+    }
+}
 
 /** The invoice named a deposit account that is not in the configured address book, so it has no IBAN. */
 class UnknownDepositAccountException(val depositAccountName: String) :

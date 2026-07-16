@@ -97,7 +97,6 @@ class MockPaymentProvider(
                 id = id,
                 status = PaymentStatus.FAILED,
                 amount = amount,
-                failureCode = "PROVIDER_INSUFFICIENT_FUNDS",
                 failureReason = "Insufficient balance: available ${source.balance}, required $amount",
             )
         }

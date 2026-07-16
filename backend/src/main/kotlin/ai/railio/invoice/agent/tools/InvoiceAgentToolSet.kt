@@ -81,8 +81,16 @@ class InvoiceAgentToolSet(
                 "Ask the user to add its IBAN on the Config page."
         } catch (e: PaymentProviderException) {
             state.phase = RunPhase.DONE
-            return "The payment system rejected the request (${e.code}): ${e.message}. " +
-                if (e.retryable) "This may be temporary." else "This will not succeed on retry; a human needs to look at it."
+            return when {
+                // A policy refusal arrives here as a 422 POLICY_VIOLATION, not as a FAILED transfer.
+                e.isPolicyDenial ->
+                    "Denied by policy: ${e.message}. Do not retry — tell the user a human must review it."
+                e.retryable ->
+                    "The payment system had a temporary problem (${e.code}): ${e.message}."
+                else ->
+                    "The payment system rejected the request (${e.code}): ${e.message}. " +
+                        "This will not succeed on retry; a human needs to look at it."
+            }
         }
 
         state.transferId = result.id
@@ -99,12 +107,9 @@ class InvoiceAgentToolSet(
 
         PaymentStatus.FAILED -> {
             state.phase = RunPhase.DONE
-            if (result.isPolicyDenial) {
-                // A policy denial is deterministic: an identical retry fails identically, forever.
-                "Denied by policy: ${result.failureReason}. Do not retry — tell the user a human must review it."
-            } else {
-                "The transfer failed: ${result.failureReason}. No funds moved."
-            }
+            // A FAILED transfer is a provider failure; a policy refusal never reaches this branch
+            // (it is thrown as a POLICY_VIOLATION above).
+            "The transfer failed: ${result.failureReason}. No funds moved."
         }
 
         PaymentStatus.AWAITING_APPROVAL -> {

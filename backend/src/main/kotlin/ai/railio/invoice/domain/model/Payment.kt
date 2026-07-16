@@ -19,10 +19,15 @@ enum class PaymentStatus {
     /** A policy requires a human decision; see [TransferResult.approvalId]. */
     AWAITING_APPROVAL,
 
-    /** The provider needs an interactive step (e.g. redirect). */
+    /** The provider needs an interactive step (e.g. OTP or redirect). */
     AWAITING_ACTION,
 
-    /** The provider needs a one-time password. */
+    /**
+     * The provider needs a one-time password.
+     *
+     * Payments-only: a transfer reports [AWAITING_ACTION] instead. Kept so the payments API can share
+     * this type.
+     */
     AWAITING_OTP,
 
     /** Money moved. */
@@ -96,10 +101,13 @@ data class TransferRequest(
  * @property amount Amount, in whole Rial.
  * @property providerReference Receipt/tracking reference, present once [PaymentStatus.COMPLETED].
  * @property failureReason Human-readable cause when [PaymentStatus.FAILED].
- * @property failureCode Stable machine code for the failure; drives retry-vs-escalate.
  * @property approvalId The approval a human must decide, when [PaymentStatus.AWAITING_APPROVAL].
  * @property actionType What interactive step the provider needs, when awaiting an action.
  * @property actionContext Provider-supplied context for that step (opaque; surfaced to a human).
+ *
+ * There is no failure *code* here on purpose: Railio reports only a human-readable [failureReason] on
+ * a transfer, and a policy denial never reaches this type at all — it is a `422 POLICY_VIOLATION`
+ * problem response, i.e. a [ai.railio.invoice.domain.port.PaymentProviderException].
  */
 data class TransferResult(
     val id: String,
@@ -107,17 +115,7 @@ data class TransferResult(
     val amount: Long,
     val providerReference: String? = null,
     val failureReason: String? = null,
-    val failureCode: String? = null,
     val approvalId: String? = null,
     val actionType: String? = null,
     val actionContext: String? = null,
-) {
-    /**
-     * True when the failure came from the **policy engine** rather than the provider.
-     *
-     * Policy denials are deterministic: an identical retry fails identically, forever. Escalate to a
-     * human instead of looping — retry loops also inflate velocity counters and mask the real cause.
-     */
-    val isPolicyDenial: Boolean
-        get() = status == PaymentStatus.FAILED && failureCode?.startsWith("POLICY") == true
-}
+)

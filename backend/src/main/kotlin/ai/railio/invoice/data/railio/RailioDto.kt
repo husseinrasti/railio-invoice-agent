@@ -30,7 +30,12 @@ data class TransferRequestDto(
 @Serializable
 data class ActionRequestDto(val actionData: Map<String, String>)
 
-/** A transfer as Railio reports it. Unknown fields are ignored so new ones don't break us. */
+/**
+ * A transfer as Railio reports it. Unknown fields are ignored so new ones don't break us.
+ *
+ * Mirrors `TransferResponse` in the live spec: there is a [failureReason] but no failure *code* — a
+ * policy refusal is a `422 POLICY_VIOLATION` problem, not a FAILED transfer.
+ */
 @Serializable
 data class TransferResponseDto(
     val id: String,
@@ -38,7 +43,6 @@ data class TransferResponseDto(
     val amount: String? = null,
     val providerReference: String? = null,
     val failureReason: String? = null,
-    val failureCode: String? = null,
     val approvalId: String? = null,
     val actionType: String? = null,
     val actionContext: String? = null,
@@ -53,7 +57,12 @@ data class ProblemDto(
     @SerialName("requestId") val requestId: String? = null,
 )
 
-/** Maps a Railio status string onto the domain enum; unknown values are treated as in-flight. */
+/**
+ * Maps a Railio status string onto the domain enum; unknown values are treated as in-flight.
+ *
+ * The live transfer enum is CREATED, AWAITING_APPROVAL, AWAITING_ACTION, EXECUTING, COMPLETED,
+ * FAILED, CANCELLED, EXPIRED. The extra cases here cover the payments API and are harmless.
+ */
 fun String.toPaymentStatus(): PaymentStatus = when (uppercase()) {
     "COMPLETED", "SUCCEEDED", "SUCCESS" -> PaymentStatus.COMPLETED
     "FAILED", "DENIED" -> PaymentStatus.FAILED
@@ -74,7 +83,6 @@ fun TransferResponseDto.toDomain(fallbackAmount: Long): TransferResult = Transfe
     amount = amount?.toLongOrNull() ?: fallbackAmount,
     providerReference = providerReference,
     failureReason = failureReason,
-    failureCode = failureCode,
     approvalId = approvalId,
     actionType = actionType,
     actionContext = actionContext,
