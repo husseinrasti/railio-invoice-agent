@@ -5,16 +5,10 @@ import type { ChatItem } from "@/lib/useChat";
 import ChatCard from "./cards/ChatCard";
 
 /**
- * Renders the chat transcript: user bubbles, streamed assistant text, error notices, and (from the
- * next milestone) inline invoice/approval/receipt cards.
+ * Renders the chat transcript: user bubbles, streamed assistant text, error notices, and inline
+ * invoice/status/receipt cards.
  */
-export default function MessageList({
-  items,
-  onApprove,
-}: {
-  items: ChatItem[];
-  onApprove: (runId: string, approved: boolean) => void;
-}) {
+export default function MessageList({ items }: { items: ChatItem[] }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [items]);
 
@@ -22,8 +16,8 @@ export default function MessageList({
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-6">
       {items.length === 0 && (
         <p className="mx-auto max-w-md text-center text-sm text-slate-400">
-          Insert a sample invoice or paste one to get started. The agent will read it, decide whether it
-          can pay automatically, and ask for approval when needed.
+          Insert a sample invoice or paste one to get started. The agent reads it and proposes the
+          payment to Railio, which decides whether it executes or needs a person to approve it.
         </p>
       )}
 
@@ -57,7 +51,7 @@ export default function MessageList({
           case "card":
             return (
               <div key={item.id} className="flex justify-start">
-                <ChatCard card={item.card} runId={item.runId} onApprove={onApprove} />
+                <ChatCard card={item.card} />
               </div>
             );
         }

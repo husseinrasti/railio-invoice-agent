@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { approvePayment, startChat, streamUrl } from "./api";
+import { startChat, streamUrl } from "./api";
 import type { CardWire, LogEntry } from "./types";
 
 export type ChatItem =
@@ -101,15 +101,11 @@ export function useChat() {
     [busy, appendToken, finalizeAssistant, closeStream],
   );
 
-  const approve = useCallback(async (runId: string, approved: boolean) => {
-    await approvePayment(runId, approved);
-  }, []);
-
   const reset = useCallback(() => {
     closeStream();
     setItems([]);
     setLogs([]);
   }, [closeStream]);
 
-  return { items, logs, busy, send, approve, reset };
+  return { items, logs, busy, send, reset };
 }

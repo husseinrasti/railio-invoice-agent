@@ -1,32 +1,53 @@
-import { formatAmount } from "@/lib/format";
-import type { ReceiptView } from "@/lib/types";
+import { formatAmount, statusText } from "@/lib/format";
+import type { PaymentStatus, ReceiptView } from "@/lib/types";
 
-const STATUS_STYLE: Record<ReceiptView["status"], string> = {
-  SUCCESS: "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40",
+const STATUS_STYLE: Record<PaymentStatus, string> = {
+  COMPLETED: "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40",
   FAILED: "border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/40",
-  PENDING: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
-  AWAITING_APPROVAL: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
+  CANCELLED: "border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/40",
+  EXPIRED: "border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/40",
+  AWAITING_APPROVAL: "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40",
+  AWAITING_ACTION: "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40",
+  AWAITING_OTP: "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40",
+  CREATED: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
+  POLICY_CHECKING: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
+  EXECUTING: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
 };
 
-/** Transfer receipt — a preview before execution or the final confirmation after it. */
-export default function ReceiptCard({ receipt }: { receipt: ReceiptView }) {
-  const isFinal = receipt.kind === "FINAL";
-  const title = isFinal
-    ? receipt.status === "SUCCESS"
-      ? "✅ Payment receipt"
-      : receipt.status === "FAILED"
-        ? "❌ Payment failed"
-        : "Receipt"
-    : "📄 Payment preview";
+function title(receipt: ReceiptView): string {
+  if (receipt.kind !== "FINAL") return "📄 Payment proposed";
+  switch (receipt.status) {
+    case "COMPLETED":
+      return "✅ Payment receipt";
+    case "FAILED":
+      return "❌ Payment failed";
+    case "CANCELLED":
+      return "🚫 Payment cancelled";
+    case "EXPIRED":
+      return "⌛ Payment expired";
+    default:
+      return `⏳ ${statusText(receipt.status)}`;
+  }
+}
 
+/**
+ * Transfer receipt — a preview of what was proposed, or the final outcome once Railio settled it.
+ *
+ * A preview is explicitly not a payment: the money only moves when the status says COMPLETED.
+ */
+export default function ReceiptCard({ receipt }: { receipt: ReceiptView }) {
   return (
     <div className={`max-w-md rounded-xl border p-4 shadow-sm ${STATUS_STYLE[receipt.status]}`}>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title(receipt)}
+      </div>
       <dl className="grid grid-cols-2 gap-y-1 text-sm">
         <dt className="text-slate-400">Amount</dt>
         <dd className="text-right font-semibold">{formatAmount(receipt.amount)}</dd>
+        <dt className="text-slate-400">Status</dt>
+        <dd className="text-right">{statusText(receipt.status)}</dd>
         <dt className="text-slate-400">From</dt>
-        <dd className="text-right">{receipt.sourceName}</dd>
+        <dd className="truncate text-right">{receipt.sourceLabel}</dd>
         <dt className="text-slate-400">To</dt>
         <dd className="text-right">{receipt.depositName}</dd>
         <dt className="text-slate-400">Deposit ID</dt>
@@ -39,7 +60,7 @@ export default function ReceiptCard({ receipt }: { receipt: ReceiptView }) {
         )}
         {receipt.trackingCode && (
           <>
-            <dt className="text-slate-400">Tracking</dt>
+            <dt className="text-slate-400">Reference</dt>
             <dd className="text-right font-mono text-xs">{receipt.trackingCode}</dd>
           </>
         )}
