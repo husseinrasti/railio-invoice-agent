@@ -19,15 +19,24 @@ import ai.koog.prompt.llm.LLModel
  */
 class OpenRouterExecutorProvider(
     apiKey: String,
-    baseUrl: String = OpenRouterSettings_DEFAULT_BASE_URL,
+    baseUrl: String = DEFAULT_BASE_URL,
 ) {
-    private val client = OpenRouterLLMClient(apiKey, OpenRouterClientSettings(baseUrl = baseUrl))
+    // Koog's settings hold the *host* only and append `api/v1/chat/completions` themselves. A base
+    // URL that already carries the `/api/v1` path (the value shown in the config UI) would double it
+    // to `.../api/v1/api/v1/...` and hit OpenRouter's marketing 404, so trim the path segment off.
+    private val client = OpenRouterLLMClient(apiKey, OpenRouterClientSettings(baseUrl = normalizeHost(baseUrl)))
 
     /** Executor used by the agent. */
     val executor: PromptExecutor = MultiLLMPromptExecutor(client)
 
     /** An [LLModel] for [modelId], reusing a tool-capable model's capabilities. */
     fun model(modelId: String): LLModel = OpenRouterModels.GPT4o.copy(id = modelId)
-}
 
-private const val OpenRouterSettings_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+    private companion object {
+        const val DEFAULT_BASE_URL = "https://openrouter.ai"
+
+        /** Reduces a base URL to its scheme+host, dropping any `/api/v1…` path Koog will re-add. */
+        fun normalizeHost(url: String): String =
+            url.trim().trimEnd('/').removeSuffix("/api/v1").trimEnd('/').ifBlank { DEFAULT_BASE_URL }
+    }
+}
