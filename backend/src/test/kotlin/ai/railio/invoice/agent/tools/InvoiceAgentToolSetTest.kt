@@ -14,6 +14,7 @@ import ai.railio.invoice.support.testConfig
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -112,7 +113,7 @@ class InvoiceAgentToolSetTest {
         t.readInvoice("Gym", 1_000_000, "Stranger", "G-1", "")
         val result = t.payNow()
 
-        assertTrue(result.contains("Cannot pay"))
+        assertTrue(result.contains("can't pay"), result)
         assertEquals(100_000_000, config.get().sourceAccount.balance)
     }
 
@@ -160,8 +161,67 @@ class InvoiceAgentToolSetTest {
         t.payNow()
         val again = t.payNow()
 
-        assertTrue(again.contains("already submitted"))
+        assertTrue(again.contains("finished"), "a repeat payNow must replay the outcome: $again")
         assertEquals(99_000_000, config.get().sourceAccount.balance, "the invoice must be paid exactly once")
+        assertEquals(
+            1,
+            bus.buffered(runId).count { it is AgentEvent.ToolCall && it.name == "payNow" },
+            "only one proposal may reach the payment system",
+        )
+    }
+
+    @Test
+    fun `a failed payNow is not retryable, so the model cannot loop on it`() = runTest {
+        // The bug: an unknown deposit left transferId null, the guard only checked transferId, and the
+        // model re-called payNow forever. Every terminal answer — failure included — must stick.
+        val config = FakeConfigRepository(testConfig(balance = 100_000_000))
+        val state = AgentRunState()
+        val bus = InMemoryAgentEventBus()
+        val t = tools(config, state, bus)
+
+        t.readInvoice("Gym", 1_000_000, "Gym Club", "G-1", "")
+        val first = t.payNow()
+        val second = t.payNow()
+        val third = t.readInvoice("Gym", 1_000_000, "Gym Club", "G-1", "")
+
+        assertTrue(first.contains("can't pay"), first)
+        assertTrue(second.contains("finished"), "a repeat payNow must replay the outcome: $second")
+        assertTrue(third.contains("finished"), "a repeat readInvoice must replay the outcome: $third")
+        assertEquals(1, bus.buffered(runId).count { it is AgentEvent.ToolCall && it.name == "payNow" })
+    }
+
+    @Test
+    fun `tool calls after a completed payment do no further work`() = runTest {
+        val config = FakeConfigRepository(testConfig(balance = 100_000_000))
+        val state = AgentRunState()
+        val bus = InMemoryAgentEventBus()
+        val t = tools(config, state, bus)
+
+        t.readInvoice("Rent", 1_000_000, "Landlord", "RENT-1", "")
+        t.payNow()
+        t.payNow()
+        t.readInvoice("Rent", 1_000_000, "Landlord", "RENT-1", "")
+
+        assertEquals(99_000_000, config.get().sourceAccount.balance, "the invoice must be paid exactly once")
+    }
+
+    @Test
+    fun `the recorded outcome is user-facing, free of instructions meant for the model`() = runTest {
+        // state.outcome is what the user is shown when the model spins out, so directions like
+        // "do not retry" belong in the tool's return value, not in the outcome.
+        val config = FakeConfigRepository(testConfig(balance = 100_000_000))
+        val state = AgentRunState()
+        val bus = InMemoryAgentEventBus()
+        val t = tools(config, state, bus)
+
+        t.readInvoice("Gym", 1_000_000, "Gym Club", "G-1", "")
+        val toModel = t.payNow()
+
+        val outcome = state.outcome!!
+        assertTrue(toModel.contains("Do not retry"), "the model still needs the direction")
+        listOf("Do not retry", "Stop now", "Tell the user", "call payNow").forEach {
+            assertFalse(outcome.contains(it, ignoreCase = true), "user-facing text leaked '$it': $outcome")
+        }
     }
 
     @Test

@@ -36,14 +36,24 @@ class InvoiceAgentService(
         val state = runStates.create(runId)
         emitLog(runId, LogLevel.INFO, "orchestrator", "Received invoice input (${message.length} chars)")
 
-        val result = try {
+        val narration = try {
             factory.create(runId, state).run(message)
         } catch (e: Exception) {
+            // The model failing to wrap up (e.g. spinning until the iteration cap) must not lose an
+            // answer we already have: the tools record the outcome as they produce it, so report that
+            // and let the run end normally. Only a run that never got an answer is an error.
             log.error("Run {} failed", runId, e)
-            emitError(runId, e.message ?: "The agent failed while processing the invoice")
-            return
+            val known = state.outcome
+            if (known == null) {
+                emitError(runId, e.message ?: "The agent failed while processing the invoice")
+                return
+            }
+            emitLog(runId, LogLevel.WARN, "orchestrator", "The model did not finish cleanly; reporting the recorded outcome")
+            known
         }
-        streamNarration(runId, result)
+
+        // The outcome the tools recorded is authoritative; the model's closing sentence is a nicety.
+        streamNarration(runId, state.outcome ?: narration)
 
         if (state.phase == RunPhase.AWAITING_REMOTE) {
             settle(runId, state)

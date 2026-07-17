@@ -53,6 +53,10 @@ class InvoiceAgentToolSet(
         @LLMDescription("Deposit or reference id printed on the invoice") depositId: String,
         @LLMDescription("ISO-8601 due date (e.g. 2026-07-25T20:30:00Z) or empty string if none") expiresAt: String,
     ): String {
+        settled()?.let { return it }
+        // Re-reading is a no-op: the id is derived from the invoice, so a repeat is the same invoice.
+        state.invoice?.let { return "Invoice ${it.id} is already recorded. Call payNow." }
+
         bus.emit(runId, AgentEvent.ToolCall("readInvoice", "Recording invoice"))
         val invoice = Invoice(
             id = invoiceId(depositId, amount),
@@ -73,38 +77,41 @@ class InvoiceAgentToolSet(
             "denied, or needs a human's approval — you cannot approve it yourself.",
     )
     suspend fun payNow(): String {
+        settled()?.let { return it }
+        val invoice = state.invoice
+            ?: return "No invoice recorded yet. Call readInvoice first."
+
         bus.emit(runId, AgentEvent.ToolCall("payNow", "Proposing the transfer"))
-        val invoice = state.invoice ?: return "No invoice recorded yet. Call readInvoice first."
-
-        // Models retry. The stable idempotency key already means Railio would collapse a second
-        // proposal onto the first, but do not even ask: one proposal per run.
-        state.transferId?.let { existing ->
-            return "This invoice was already submitted (transfer $existing). Do not submit it again; " +
-                "report the outcome you were already given."
-        }
-
         val submitted = try {
             submitTransfer(invoice)
         } catch (e: UnknownDepositAccountException) {
-            state.phase = RunPhase.DONE
-            return "Cannot pay: no deposit account named '${e.depositAccountName}' is configured. " +
-                "Ask the user to add its IBAN on the Config page."
+            return state.finish(
+                "I can't pay this: there is no deposit account named '${e.depositAccountName}' " +
+                    "configured, so I have no IBAN to send it to. Add it on the Config page.",
+                hint = "Do not retry.",
+            )
         } catch (e: NoUsableSourceAccountException) {
-            state.phase = RunPhase.DONE
             // The agent may not add or enable a bank account — this needs a human.
-            return "Cannot pay: this agent has no active ${e.currency} bank account to pay from. " +
-                "Tell the user to add one in the Railio dashboard and make it available to this agent."
+            return state.finish(
+                "I can't pay this: this agent has no active ${e.currency} bank account to pay from. " +
+                    "Add one in the Railio dashboard and make it available to this agent.",
+                hint = "Do not retry.",
+            )
         } catch (e: PaymentProviderException) {
-            state.phase = RunPhase.DONE
+            // A policy refusal arrives here as a 422 POLICY_VIOLATION, not a FAILED transfer.
             return when {
-                // A policy refusal arrives here as a 422 POLICY_VIOLATION, not as a FAILED transfer.
-                e.isPolicyDenial ->
-                    "Denied by policy: ${e.message}. Do not retry — tell the user a human must review it."
-                e.retryable ->
-                    "The payment system had a temporary problem (${e.code}): ${e.message}."
-                else ->
-                    "The payment system rejected the request (${e.code}): ${e.message}. " +
-                        "This will not succeed on retry; a human needs to look at it."
+                e.isPolicyDenial -> state.finish(
+                    "The payment was denied by policy: ${e.message}. A person needs to review it.",
+                    hint = "Do not retry.",
+                )
+                e.retryable -> state.finish(
+                    "The payment system had a temporary problem (${e.code}): ${e.message}. Worth trying again later.",
+                    hint = "Do not retry it yourself.",
+                )
+                else -> state.finish(
+                    "The payment system rejected the request (${e.code}): ${e.message}. A person needs to look at it.",
+                    hint = "Do not retry.",
+                )
             }
         }
 
@@ -118,6 +125,18 @@ class InvoiceAgentToolSet(
             ),
         )
         return report(invoice, result)
+    }
+
+    /**
+     * Replays the run's answer once it has one, instead of doing the work again.
+     *
+     * Every terminal path — paid, denied, failed, parked — records an outcome, so a model that keeps
+     * calling tools (they do, especially after an error) gets the same answer and an instruction to
+     * stop, rather than driving another proposal. The prompt asks for this too, but a small model
+     * ignores it; this is the part that actually holds.
+     */
+    private fun settled(): String? = state.outcome?.let {
+        "This run is finished. The outcome was: $it — stop calling tools and tell the user in one sentence."
     }
 
     /**
@@ -135,17 +154,16 @@ class InvoiceAgentToolSet(
 
     /** Turns the state the transfer landed in into an instruction for the model and a card for the user. */
     private suspend fun report(invoice: Invoice, result: TransferResult): String = when (result.status) {
-        PaymentStatus.COMPLETED -> {
-            state.phase = RunPhase.DONE
-            "Transfer completed. Reference ${result.providerReference}."
-        }
+        PaymentStatus.COMPLETED ->
+            state.finish("Transfer completed. Reference ${result.providerReference}.")
 
-        PaymentStatus.FAILED -> {
-            state.phase = RunPhase.DONE
-            // A FAILED transfer is a provider failure; a policy refusal never reaches this branch
-            // (it is thrown as a POLICY_VIOLATION above).
-            "The transfer failed: ${result.failureReason}. No funds moved."
-        }
+        // A FAILED transfer is a provider failure; a policy refusal never reaches this branch (it is
+        // thrown as a POLICY_VIOLATION above).
+        PaymentStatus.FAILED ->
+            state.finish(
+                "The transfer failed: ${result.failureReason}. No funds moved.",
+                hint = "Do not retry.",
+            )
 
         PaymentStatus.AWAITING_APPROVAL -> {
             bus.emit(
@@ -163,9 +181,12 @@ class InvoiceAgentToolSet(
                     ),
                 ),
             )
-            state.phase = RunPhase.AWAITING_REMOTE
-            "A policy requires a human to approve this payment in Railio. Tell the user it is awaiting " +
-                "approval and that you will report the outcome. Stop now."
+            state.finish(
+                "A policy requires a person to approve this payment in Railio. I'll report the outcome " +
+                    "once they decide.",
+                hint = "Stop now.",
+                phase = RunPhase.AWAITING_REMOTE,
+            )
         }
 
         PaymentStatus.AWAITING_ACTION -> {
@@ -175,13 +196,18 @@ class InvoiceAgentToolSet(
                     AgentCard.ActionPending(AwaitingAction(result.id, result.actionType, result.actionContext)),
                 ),
             )
-            state.phase = RunPhase.AWAITING_REMOTE
-            "The payment provider needs a step from a human (${result.actionType}). Tell the user and stop."
+            state.finish(
+                "The payment provider needs a step from a person (${result.actionType}) before this can continue.",
+                hint = "Stop now.",
+                phase = RunPhase.AWAITING_REMOTE,
+            )
         }
 
-        else -> {
-            state.phase = RunPhase.AWAITING_REMOTE
-            "The payment is in flight (${result.status}). Tell the user you are waiting for it to settle, then stop."
-        }
+        else ->
+            state.finish(
+                "The payment is in flight (${result.status}). I'm waiting for it to settle.",
+                hint = "Stop now.",
+                phase = RunPhase.AWAITING_REMOTE,
+            )
     }
 }

@@ -30,6 +30,10 @@ class InvoiceAgentFactory(
             tools(InvoiceAgentToolSet(runId, state, bus, submitTransfer, buildReceipt))
         },
         systemPrompt = AgentPrompts.AGENTIC_SYSTEM,
+        // Backstop against a model that will not stop. The tools already refuse to do work once the
+        // run has an answer, so extra turns are inert and cost only latency — hence a generous cap
+        // rather than a tight one, which a couple of stray calls would trip on a healthy run.
+        maxIterations = MAX_ITERATIONS,
     ) {
         install(EventHandler.Feature) {
             onLLMCallStarting { log.debug("[{}] LLM call starting", runId) }
@@ -38,5 +42,9 @@ class InvoiceAgentFactory(
             onToolCallCompleted { ctx -> log.info("[{}] tool <- {}", runId, ctx.toolName) }
             onAgentExecutionFailed { ctx -> log.error("[{}] agent failed", runId, ctx.error) }
         }
+    }
+
+    private companion object {
+        const val MAX_ITERATIONS = 20
     }
 }

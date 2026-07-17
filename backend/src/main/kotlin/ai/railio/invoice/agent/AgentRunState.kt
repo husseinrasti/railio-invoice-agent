@@ -28,7 +28,31 @@ class AgentRunState {
     /** Label of the discovered account funding the transfer, for the receipt. */
     @Volatile var sourceLabel: String? = null
 
+    /**
+     * The run's final answer in the user's terms, once there is one — success *or* failure.
+     *
+     * Two jobs. It is the stop condition: once set, the tools do no further work, because a model
+     * retries a failure however firmly the prompt tells it not to. And it is what the user is told,
+     * so a model that spins out or dies mid-run cannot lose an answer we already have.
+     *
+     * Kept free of instructions to the model ("do not retry", "stop now") — those go in the tool's
+     * return value, not here.
+     */
+    @Volatile var outcome: String? = null
+
     @Volatile var phase: RunPhase = RunPhase.RUNNING
+
+    /**
+     * Records the run's answer and returns what the model should be told.
+     *
+     * @param outcome the user-facing answer, stored as [outcome].
+     * @param hint extra direction for the model only; never shown to the user.
+     */
+    fun finish(outcome: String, hint: String = "", phase: RunPhase = RunPhase.DONE): String {
+        this.outcome = outcome
+        this.phase = phase
+        return if (hint.isBlank()) outcome else "$outcome $hint"
+    }
 }
 
 /** Holds per-run [AgentRunState] keyed by runId. In-memory; swappable for a persistent store. */
