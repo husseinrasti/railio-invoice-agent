@@ -1,8 +1,10 @@
 package ai.railio.invoice.data.config
 
+import ai.railio.invoice.config.Env
 import ai.railio.invoice.domain.model.AppConfig
 import ai.railio.invoice.domain.model.DepositAccount
 import ai.railio.invoice.domain.model.OllamaSettings
+import ai.railio.invoice.domain.model.RailioSettings
 import ai.railio.invoice.domain.model.SourceAccount
 import ai.railio.invoice.domain.port.ConfigRepository
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +66,12 @@ class JsonConfigRepository(
     }
 }
 
-/** Default configuration used to seed a fresh install. Deposit names align with the seed invoices. */
+/**
+ * Default configuration used to seed a fresh install. Deposit names align with the seed invoices.
+ *
+ * The deposit accounts are an **address book** (invoice deposit name → IBAN to pay), not a trust
+ * list: whether a payment is allowed is a Railio policy decision, not ours.
+ */
 object ConfigDefaults {
     fun default(): AppConfig = AppConfig(
         sourceAccount = SourceAccount(
@@ -77,7 +84,9 @@ object ConfigDefaults {
             DepositAccount(name = "Utility Co", accountNumber = "IR930170000000001234567890"),
             DepositAccount(name = "Internet ISP", accountNumber = "IR350180000000009876543210"),
         ),
-        autoApprovalCap = 20_000_000,
-        ollama = OllamaSettings(),
+        // Seeded from the environment: `localhost` is the container itself once dockerised, so the
+        // deployment has to supply the reachable Railio URL. The Config page owns it after that.
+        railio = RailioSettings(baseUrl = Env.railioBaseUrl, clientId = Env.railioClientId),
+        ollama = OllamaSettings(baseUrl = Env.ollamaBaseUrl, model = Env.ollamaModel),
     )
 }

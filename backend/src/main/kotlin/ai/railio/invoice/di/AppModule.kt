@@ -14,20 +14,30 @@ import ai.railio.invoice.data.document.TextDocumentParser
 import ai.railio.invoice.data.document.VisionDocumentParser
 import ai.railio.invoice.data.invoice.JsonInvoiceRepository
 import ai.railio.invoice.data.payment.MockPaymentProvider
+import ai.railio.invoice.data.railio.RailioPaymentProvider
+import ai.railio.invoice.data.railio.RailioTokenProvider
 import ai.railio.invoice.domain.port.AgentEventBus
 import ai.railio.invoice.domain.port.ConfigRepository
 import ai.railio.invoice.domain.port.DocumentParser
 import ai.railio.invoice.domain.port.InvoiceRepository
 import ai.railio.invoice.domain.port.PaymentProvider
-import ai.railio.invoice.domain.usecase.CheckBalanceUseCase
-import ai.railio.invoice.domain.usecase.CreatePaymentUseCase
-import ai.railio.invoice.domain.usecase.EvaluateInvoiceUseCase
-import ai.railio.invoice.domain.usecase.ExecutePaymentUseCase
+import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
 import ai.railio.invoice.domain.usecase.GetConfigUseCase
+import ai.railio.invoice.domain.usecase.PollTransferUseCase
+import ai.railio.invoice.domain.usecase.SelectSourceAccountUseCase
+import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
 import ai.railio.invoice.domain.usecase.UpdateConfigUseCase
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.koin.core.annotation.Module
 import org.koin.core.annotation.Single
+import org.slf4j.LoggerFactory
 import java.nio.file.Paths
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Koin (annotations) wiring for the whole backend. Each [Single] binds a domain port or use case to
@@ -37,6 +47,8 @@ import java.nio.file.Paths
 @Module
 class AppModule {
 
+    private val log = LoggerFactory.getLogger(AppModule::class.java)
+
     @Single
     fun configRepository(): ConfigRepository =
         JsonConfigRepository(path = Paths.get(Env.configPath))
@@ -45,7 +57,49 @@ class AppModule {
     fun invoiceRepository(): InvoiceRepository = JsonInvoiceRepository()
 
     @Single
-    fun paymentProvider(config: ConfigRepository): PaymentProvider = MockPaymentProvider(config)
+    fun httpClient(): HttpClient = HttpClient(CIO) {
+        expectSuccess = false
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
+        }
+    }
+
+    @Single
+    fun railioTokenProvider(http: HttpClient, config: ConfigRepository): RailioTokenProvider =
+        RailioTokenProvider(
+            http = http,
+            // Read live: the base URL and client id are editable in the config UI, so snapshotting
+            // them here would authenticate as a stale credential until the next restart.
+            config = config,
+            // Never from config.json — the secret lives in the environment only.
+            secret = { Env.railioClientSecret },
+        )
+
+    /**
+     * Binds the money-movement boundary.
+     *
+     * `PAYMENT_PROVIDER=railio` proposes real transfers to Railio; `mock` (the default) keeps the app
+     * demoable and testable offline.
+     */
+    @Single
+    fun paymentProvider(
+        config: ConfigRepository,
+        http: HttpClient,
+        tokens: RailioTokenProvider,
+    ): PaymentProvider = when (Env.paymentProvider) {
+        "railio" -> {
+            log.info("Payment provider: railio")
+            RailioPaymentProvider(http, tokens, config)
+        }
+        else -> {
+            log.info("Payment provider: mock (set PAYMENT_PROVIDER=railio to use Railio)")
+            MockPaymentProvider(
+                config = config,
+                approvalThreshold = Env.mockApprovalThreshold,
+                approvalDelay = Env.mockApprovalDelaySeconds.seconds,
+            )
+        }
+    }
 
     @Single
     fun documentParser(): DocumentParser = DocumentParserRouter(
@@ -57,16 +111,20 @@ class AppModule {
         OllamaExecutorProvider(baseUrl = Env.ollamaBaseUrl, modelId = Env.ollamaModel)
 
     @Single
-    fun evaluateInvoiceUseCase(config: ConfigRepository) = EvaluateInvoiceUseCase(config)
+    fun selectSourceAccountUseCase(provider: PaymentProvider) = SelectSourceAccountUseCase(provider)
 
     @Single
-    fun createPaymentUseCase(provider: PaymentProvider) = CreatePaymentUseCase(provider)
+    fun submitTransferUseCase(
+        provider: PaymentProvider,
+        config: ConfigRepository,
+        selectSource: SelectSourceAccountUseCase,
+    ) = SubmitTransferUseCase(provider, config, selectSource)
 
     @Single
-    fun executePaymentUseCase(provider: PaymentProvider) = ExecutePaymentUseCase(provider)
+    fun pollTransferUseCase(provider: PaymentProvider) = PollTransferUseCase(provider)
 
     @Single
-    fun checkBalanceUseCase(provider: PaymentProvider) = CheckBalanceUseCase(provider)
+    fun buildReceiptUseCase(config: ConfigRepository) = BuildReceiptUseCase(config)
 
     @Single
     fun getConfigUseCase(config: ConfigRepository) = GetConfigUseCase(config)
@@ -86,16 +144,17 @@ class AppModule {
     @Single
     fun invoiceAgentFactory(
         provider: OllamaExecutorProvider,
-        evaluate: EvaluateInvoiceUseCase,
-        create: CreatePaymentUseCase,
-        execute: ExecutePaymentUseCase,
+        submit: SubmitTransferUseCase,
+        receipts: BuildReceiptUseCase,
         bus: AgentEventBus,
-    ): InvoiceAgentFactory = InvoiceAgentFactory(provider, evaluate, create, execute, bus)
+    ): InvoiceAgentFactory = InvoiceAgentFactory(provider, submit, receipts, bus)
 
     @Single
     fun invoiceAgentService(
         factory: InvoiceAgentFactory,
         bus: AgentEventBus,
         runStates: RunStateStore,
-    ): InvoiceAgentService = InvoiceAgentService(factory, bus, runStates)
+        poll: PollTransferUseCase,
+        receipts: BuildReceiptUseCase,
+    ): InvoiceAgentService = InvoiceAgentService(factory, bus, runStates, poll, receipts)
 }

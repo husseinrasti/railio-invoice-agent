@@ -62,13 +62,8 @@ export async function startChat(message: string): Promise<string> {
   return res.runId;
 }
 
-export async function approvePayment(runId: string, approved: boolean): Promise<void> {
-  await fetch(`${API_URL}/api/chat/${runId}/approve`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ approved }),
-  });
-}
+// There is no approve call: a payment parked by a Railio policy is approved by a human in the Railio
+// dashboard. The run's SSE stream reports the outcome once the backend polls it.
 
 /** SSE stream URL for a run, carrying the secret as a query param (EventSource can't set headers). */
 export function streamUrl(runId: string): string {

@@ -2,10 +2,8 @@ package ai.railio.invoice.api.routes
 
 import ai.railio.invoice.agent.ConversationStore
 import ai.railio.invoice.agent.InvoiceAgentService
-import ai.railio.invoice.api.dto.ApproveRequest
 import ai.railio.invoice.api.dto.ChatRequest
 import ai.railio.invoice.api.dto.ChatStartedResponse
-import ai.railio.invoice.api.dto.StatusResponse
 import ai.railio.invoice.api.dto.toWire
 import ai.railio.invoice.domain.model.AgentEvent
 import ai.railio.invoice.domain.port.AgentEventBus
@@ -25,7 +23,10 @@ import kotlinx.serialization.json.Json
  *
  * - `POST /chat` starts an agent run and returns its `runId`.
  * - `GET  /chat/{runId}/stream` streams the run's events as SSE until `done`/`error`.
- * - `POST /chat/{runId}/approve` approves or rejects a pending payment.
+ *
+ * There is deliberately no approve endpoint: a payment parked by a Railio policy is approved by a
+ * human in the Railio dashboard, and this agent's credential has no approve scope. The run polls for
+ * the outcome and reports it on the same stream.
  *
  * The run executes in the background; the SSE stream (with replay) delivers every event even if the
  * client subscribes a moment after `POST /chat` returns.
@@ -41,13 +42,6 @@ fun Route.chatRoutes(
         val runId = store.newRunId()
         call.application.launch { service.handle(runId, request.message) }
         call.respond(ChatStartedResponse(runId))
-    }
-
-    post("/chat/{runId}/approve") {
-        val runId = call.parameters["runId"] ?: throw IllegalArgumentException("runId is required")
-        val request = call.receive<ApproveRequest>()
-        call.application.launch { service.approve(runId, request.approved) }
-        call.respond(StatusResponse("processing"))
     }
 
     sse("/chat/{runId}/stream") {

@@ -11,10 +11,16 @@ sealed interface AgentCard {
     /** The invoice the agent extracted from the user's input. */
     data class InvoiceParsed(val invoice: Invoice) : AgentCard
 
-    /** A request for the user to approve or reject a pending payment. */
-    data class Approval(val request: ApprovalRequest) : AgentCard
+    /**
+     * A transfer parked for human approval. Read-only status — the agent cannot approve it; a human
+     * decides in the Railio dashboard and the agent polls for the outcome.
+     */
+    data class ApprovalPending(val awaiting: AwaitingApproval) : AgentCard
 
-    /** A transfer receipt (preview before, final after execution). */
+    /** A transfer parked on an interactive provider step (OTP/redirect) a human must complete. */
+    data class ActionPending(val awaiting: AwaitingAction) : AgentCard
+
+    /** A transfer receipt (preview when proposed, final once terminal). */
     data class ReceiptIssued(val receipt: Receipt) : AgentCard
 }
 

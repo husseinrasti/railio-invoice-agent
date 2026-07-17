@@ -31,6 +31,11 @@ dependencies {
     implementation(ktorLibs.server.swagger)
     implementation(ktorLibs.serialization.kotlinx.json)
 
+    // Ktor client — talks to the Railio financial-execution API
+    implementation(ktorLibs.client.core)
+    implementation(ktorLibs.client.cio)
+    implementation(ktorLibs.client.contentNegotiation)
+
     // Koog agent framework
     implementation(libs.koog.agents)
 
@@ -53,6 +58,8 @@ dependencies {
     // Testing
     testImplementation(ktorLibs.server.testHost)
     testImplementation(ktorLibs.client.contentNegotiation)
+    // Drives the Railio client against canned responses — no live Railio needed.
+    testImplementation(ktorLibs.client.mock)
     testImplementation(libs.koin.test)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)

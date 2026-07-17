@@ -33,7 +33,10 @@ export default function ConfigPage() {
       const body = {
         sourceAccount: config.sourceAccount,
         depositAccounts: config.depositAccounts,
-        autoApprovalCap: config.autoApprovalCap,
+        railio: {
+          baseUrl: config.railio.baseUrl,
+          clientId: config.railio.clientId,
+        },
         ...(secret ? { agentSecret: secret } : {}),
       };
       const saved = await saveConfig(body);
@@ -52,9 +55,51 @@ export default function ConfigPage() {
     <div className="mx-auto max-w-2xl space-y-8 p-6">
       <h1 className="text-xl font-semibold">Configuration</h1>
 
-      {/* Source account */}
+      {/* Railio */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-500">Source account</h2>
+        <h2 className="text-sm font-semibold text-slate-500">Railio</h2>
+        <p className="text-xs text-slate-400">
+          Railio executes the payments this agent proposes. Spending limits and approval thresholds
+          are Railio <em>policies</em> — a person sets them in the Railio dashboard, and an agent
+          cannot raise its own limits, so they are not settings here.
+        </p>
+        <Field label="API base URL">
+          <input
+            className="input"
+            value={config.railio.baseUrl}
+            onChange={(e) => update({ railio: { ...config.railio, baseUrl: e.target.value } })}
+          />
+        </Field>
+        <Field label="Client ID (agt_…)">
+          <input
+            className="input font-mono"
+            value={config.railio.clientId}
+            onChange={(e) => update({ railio: { ...config.railio, clientId: e.target.value } })}
+          />
+        </Field>
+        <p className="text-xs text-slate-400">
+          The account payments are drawn from is <strong>discovered</strong> from Railio at payment
+          time — there is nothing to set here. The agent prefers an account assigned to it, then the
+          tenant default. Add and assign accounts in the Railio dashboard.
+        </p>
+        <p className="text-xs text-slate-400">
+          Client secret:{" "}
+          {config.railio.hasSecret ? (
+            <span className="text-emerald-600">set via RAILIO_CLIENT_SECRET</span>
+          ) : (
+            <span className="text-amber-600">not set — export RAILIO_CLIENT_SECRET</span>
+          )}
+          . It is read from the environment only and is never stored or shown here.
+        </p>
+      </section>
+
+      {/* Source account (mock provider) */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-slate-500">Source account (mock provider only)</h2>
+        <p className="text-xs text-slate-400">
+          Used when <code>PAYMENT_PROVIDER=mock</code>. With Railio the funds come from the linked
+          bank account above.
+        </p>
         <Field label="Name">
           <input
             className="input"
@@ -90,18 +135,24 @@ export default function ConfigPage() {
           {config.depositAccounts.length < MAX_DEPOSITS && (
             <button
               className="text-sm text-brand-600 hover:underline"
-              onClick={() => update({ depositAccounts: [...config.depositAccounts, { name: "", accountNumber: "" }] })}
+              onClick={() =>
+                update({ depositAccounts: [...config.depositAccounts, { name: "", accountNumber: "" }] })
+              }
             >
               + Add
             </button>
           )}
         </div>
+        <p className="text-xs text-slate-400">
+          An address book: the deposit name printed on an invoice is matched here to find the IBAN to
+          pay. It is not a trust list — whether a payment is allowed is Railio&apos;s decision.
+        </p>
         {config.depositAccounts.map((d, i) => (
           <div key={i} className="flex items-end gap-2">
             <Field label="Name" className="flex-1">
               <input className="input" value={d.name} onChange={(e) => updateDeposit(i, { name: e.target.value })} />
             </Field>
-            <Field label="Account number" className="flex-1">
+            <Field label="IBAN" className="flex-1">
               <input
                 className="input font-mono"
                 value={d.accountNumber}
@@ -118,17 +169,9 @@ export default function ConfigPage() {
         ))}
       </section>
 
-      {/* Policy */}
+      {/* This backend's own auth */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-500">Payment policy</h2>
-        <Field label="Auto-approval cap (IRR) — payments above this need approval">
-          <input
-            type="number"
-            className="input"
-            value={config.autoApprovalCap}
-            onChange={(e) => update({ autoApprovalCap: Number(e.target.value) })}
-          />
-        </Field>
+        <h2 className="text-sm font-semibold text-slate-500">This backend</h2>
         <Field label={`Agent secret ${config.hasSecret ? "(set — leave blank to keep)" : "(optional)"}`}>
           <input
             type="password"

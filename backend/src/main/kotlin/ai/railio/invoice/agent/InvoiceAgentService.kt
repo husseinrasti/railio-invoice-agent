@@ -1,76 +1,101 @@
 package ai.railio.invoice.agent
 
+import ai.railio.invoice.domain.model.AgentCard
 import ai.railio.invoice.domain.model.AgentEvent
 import ai.railio.invoice.domain.model.LogLevel
+import ai.railio.invoice.domain.model.PaymentStatus
+import ai.railio.invoice.domain.model.ReceiptKind
+import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.AgentEventBus
+import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
+import ai.railio.invoice.domain.usecase.PollTransferUseCase
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 
 /**
  * Runs a chat turn through a tool-driven Koog [AIAgent][ai.koog.agents.core.agent.AIAgent].
  *
- * The LLM sequences the tool calls (readInvoice → requestApproval | payNow); this service only builds
- * the agent, streams its final sentence, and decides — from the run's [phase][AgentRunState.phase] —
- * whether the turn is complete or paused for approval. The approval/cap gate lives in the tools, so
- * the money flow stays safe regardless of how the model behaves.
+ * The LLM sequences the tool calls (readInvoice → payNow); this service builds the agent, streams its
+ * final sentence, and — when the transfer parked on the execution layer — polls until the operation
+ * settles and reports the outcome on the same stream.
+ *
+ * There is deliberately no `approve` entry point: approval is a human's decision in the Railio
+ * dashboard, and this agent's identity has no scope to make it.
  */
 class InvoiceAgentService(
     private val factory: InvoiceAgentFactory,
     private val bus: AgentEventBus,
     private val runStates: RunStateStore,
+    private val pollTransfer: PollTransferUseCase,
+    private val buildReceipt: BuildReceiptUseCase,
 ) {
     private val log = LoggerFactory.getLogger(InvoiceAgentService::class.java)
 
-    /** Handles a new invoice message by running the agent to a result or an approval pause. */
+    /** Handles an invoice message: runs the agent, then settles any parked transfer. */
     suspend fun handle(runId: String, message: String) {
         val state = runStates.create(runId)
         emitLog(runId, LogLevel.INFO, "orchestrator", "Received invoice input (${message.length} chars)")
 
-        val result = try {
+        val narration = try {
             factory.create(runId, state).run(message)
         } catch (e: Exception) {
+            // The model failing to wrap up (e.g. spinning until the iteration cap) must not lose an
+            // answer we already have: the tools record the outcome as they produce it, so report that
+            // and let the run end normally. Only a run that never got an answer is an error.
             log.error("Run {} failed", runId, e)
-            emitError(runId, e.message ?: "The agent failed while processing the invoice")
-            return
+            val known = state.outcome
+            if (known == null) {
+                emitError(runId, e.message ?: "The agent failed while processing the invoice")
+                return
+            }
+            emitLog(runId, LogLevel.WARN, "orchestrator", "The model did not finish cleanly; reporting the recorded outcome")
+            known
         }
 
-        streamNarration(runId, result)
-        if (state.phase == RunPhase.AWAITING_APPROVAL) {
-            // Leave the run open: the SSE stream stays live until approve() completes it.
-            emitLog(runId, LogLevel.INFO, "orchestrator", "Paused, awaiting user approval")
-        } else {
-            runStates.remove(runId)
-            bus.emit(runId, AgentEvent.Done)
-        }
-    }
+        // The outcome the tools recorded is authoritative; the model's closing sentence is a nicety.
+        streamNarration(runId, state.outcome ?: narration)
 
-    /** Resolves a pending approval by running the agent again to execute (or by cancelling). */
-    suspend fun approve(runId: String, approved: Boolean) {
-        val state = runStates.get(runId)
-        if (state == null) {
-            emitError(runId, "There is no run awaiting approval for this conversation.")
-            return
+        if (state.phase == RunPhase.AWAITING_REMOTE) {
+            settle(runId, state)
         }
-        if (!approved) {
-            emitLog(runId, LogLevel.WARN, "approval", "User rejected the payment")
-            streamNarration(runId, "You rejected the payment, so I've cancelled it. Nothing was transferred.")
-            runStates.remove(runId)
-            bus.emit(runId, AgentEvent.Done)
-            return
-        }
-
-        emitLog(runId, LogLevel.INFO, "approval", "User approved the payment")
-        state.approved = true
-        val result = try {
-            factory.create(runId, state).run("The user approved the pending payment. Call payNow now to complete it.")
-        } catch (e: Exception) {
-            log.error("Approval run {} failed", runId, e)
-            emitError(runId, e.message ?: "The agent failed while executing the approved payment")
-            return
-        }
-        streamNarration(runId, result)
         runStates.remove(runId)
         bus.emit(runId, AgentEvent.Done)
+    }
+
+    /**
+     * Polls a parked transfer until it settles, then emits the final receipt.
+     *
+     * The stream stays open across this wait, so the outcome reaches the same client that proposed it.
+     */
+    private suspend fun settle(runId: String, state: AgentRunState) {
+        val transferId = state.transferId ?: return
+        val invoice = state.invoice ?: return
+        emitLog(runId, LogLevel.INFO, "railio", "Waiting for transfer $transferId to settle")
+
+        val final = try {
+            pollTransfer(transferId) { update ->
+                emitLog(runId, LogLevel.INFO, "railio", "Transfer $transferId is now ${update.status}")
+            }
+        } catch (e: Exception) {
+            log.error("Polling {} failed", transferId, e)
+            emitError(runId, "Lost track of transfer $transferId: ${e.message}")
+            return
+        }
+
+        bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, final, ReceiptKind.FINAL, state.sourceLabel))))
+        streamNarration(runId, outcomeText(final))
+    }
+
+    private fun outcomeText(result: TransferResult): String = when (result.status) {
+        PaymentStatus.COMPLETED ->
+            "The payment was approved and completed. Reference ${result.providerReference}."
+        PaymentStatus.FAILED ->
+            "The payment failed: ${result.failureReason ?: "no reason given"}. No funds moved."
+        PaymentStatus.CANCELLED -> "The payment was cancelled. No funds moved."
+        PaymentStatus.EXPIRED -> "The payment expired before it completed. No funds moved."
+        else ->
+            "The payment is still ${result.status} — it is taking longer than expected. " +
+                "You can check its status in Railio."
     }
 
     /** Streams a message token-by-token, then emits the finalized assistant message. */

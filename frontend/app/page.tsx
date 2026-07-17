@@ -6,7 +6,7 @@ import MessageList from "@/components/MessageList";
 import { useChat } from "@/lib/useChat";
 
 export default function ChatPage() {
-  const { items, logs, busy, send, approve, reset } = useChat();
+  const { items, logs, busy, send, reset } = useChat();
 
   return (
     <div className="flex h-full">
@@ -17,7 +17,7 @@ export default function ChatPage() {
             Clear
           </button>
         </div>
-        <MessageList items={items} onApprove={approve} />
+        <MessageList items={items} />
         <Composer onSend={send} disabled={busy} />
       </section>
 

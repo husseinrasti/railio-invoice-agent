@@ -1,128 +1,129 @@
 package ai.railio.invoice.data.payment
 
-import ai.railio.invoice.domain.model.BalanceCheck
-import ai.railio.invoice.domain.model.Payment
-import ai.railio.invoice.domain.model.PaymentDraft
-import ai.railio.invoice.domain.model.PaymentRequest
+import ai.railio.invoice.domain.model.BankAccountStatus
 import ai.railio.invoice.domain.model.PaymentStatus
-import ai.railio.invoice.domain.model.Receipt
-import ai.railio.invoice.domain.model.ReceiptKind
-import ai.railio.invoice.domain.model.SourceAccount
+import ai.railio.invoice.domain.model.SourceBankAccount
+import ai.railio.invoice.domain.model.TransferRequest
+import ai.railio.invoice.domain.model.TransferResult
 import ai.railio.invoice.domain.port.ConfigRepository
 import ai.railio.invoice.domain.port.PaymentProvider
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /**
- * In-memory mock of the Iranian money-transfer flow.
+ * Offline stand-in for the Railio API, so the app demos and tests without credentials.
  *
- * The source account and its balance live in [AppConfig][ai.railio.invoice.domain.model.AppConfig]
- * (edited via the config UI); a successful [execute] deducts the balance through the
- * [ConfigRepository], so the configured balance is the single source of truth and stays in sync.
+ * It imitates the parts of the real execution layer that shape our code:
+ * - **Policy park** — transfers above [approvalThreshold] land in `AWAITING_APPROVAL` (as a Railio
+ *   `APPROVAL_THRESHOLD` policy would), then resolve after [approvalDelay] as if a human approved
+ *   them in the dashboard. This keeps the parked/polling path exercisable without Railio.
+ * - **Idempotency** — re-submitting a key returns the existing operation rather than paying twice.
+ * - **Provider failure** — an insufficient balance fails without moving funds.
  *
- * Flow: [checkBalance] → [createPayment] (preview receipt) → [execute] (deduct + final receipt).
+ * The balance lives in [AppConfig][ai.railio.invoice.domain.model.AppConfig] and is deducted on
+ * completion, so the config UI reflects it. With the real Railio provider the funds live behind the
+ * linked bank account instead.
  *
- * @param config Source of the funding account and sink for balance deductions.
- * @param now Time source (injectable for deterministic tests).
- * @param idGenerator Payment id factory (injectable for tests).
- * @param trackingGenerator Bank tracking-code factory (injectable for tests).
+ * @param config Source of the funding account; sink for balance deductions.
+ * @param approvalThreshold Amount (Rial) above which a transfer parks for approval.
+ * @param approvalDelay How long a parked transfer stays parked before it resolves.
  */
 class MockPaymentProvider(
     private val config: ConfigRepository,
+    private val approvalThreshold: Long = 10_000_000L,
+    private val approvalDelay: Duration = 8.seconds,
     private val now: () -> Instant = { Clock.System.now() },
-    private val idGenerator: () -> String = { "pay-${UUID.randomUUID().toString().take(8)}" },
-    private val trackingGenerator: () -> String = {
+    private val idGenerator: () -> String = { "trf-${UUID.randomUUID().toString().take(8)}" },
+    private val referenceGenerator: () -> String = {
         "TRK-${UUID.randomUUID().toString().replace("-", "").take(12).uppercase()}"
     },
 ) : PaymentProvider {
 
-    /** A tracked payment plus the resolved destination account number (null when deposit is unknown). */
-    private data class Tracked(val payment: Payment, val depositAccountNumber: String?)
+    /** A tracked operation plus when it may leave the parked state. */
+    private data class Tracked(val result: TransferResult, val releaseAt: Instant?)
+
+    /** Presents the configured funding account as the single shared, default, ACTIVE source. */
+    override suspend fun listSourceAccounts(): List<SourceBankAccount> {
+        val source = config.get().sourceAccount
+        return listOf(
+            SourceBankAccount(
+                id = "mock-source",
+                bankName = source.name,
+                iban = source.accountNumber,
+                agentId = null,
+                isDefault = true,
+                status = BankAccountStatus.ACTIVE,
+                currency = "IRR",
+            ),
+        )
+    }
 
     private val mutex = Mutex()
     private val tracked = mutableMapOf<String, Tracked>()
+    private val byIdempotencyKey = mutableMapOf<String, String>()
 
-    override suspend fun checkBalance(amount: Long): BalanceCheck {
-        val balance = config.get().sourceAccount.balance
-        return BalanceCheck(sufficient = balance >= amount, currentBalance = balance, required = amount)
-    }
+    override suspend fun submitTransfer(request: TransferRequest, idempotencyKey: String): TransferResult =
+        mutex.withLock {
+            // Same business event ⇒ same operation. This is what stops a retry paying twice.
+            byIdempotencyKey[idempotencyKey]?.let { existing -> return@withLock resolve(existing) }
 
-    override suspend fun createPayment(request: PaymentRequest): PaymentDraft = mutex.withLock {
-        val source = config.get().sourceAccount
-        val id = idGenerator()
-        val status = if (request.requiresApproval) PaymentStatus.AWAITING_APPROVAL else PaymentStatus.PENDING
-        val payment = Payment(
-            id = id,
-            invoiceId = request.invoiceId,
-            detail = request.detail,
-            amount = request.amount,
-            depositAccountName = request.depositAccountName,
-            depositId = request.depositId,
-            status = status,
-            createdAt = now(),
-        )
-        val depositNumber = request.resolvedDepositAccount?.accountNumber
-        tracked[id] = Tracked(payment, depositNumber)
-        PaymentDraft(payment, receiptOf(payment, ReceiptKind.PREVIEW, source, depositNumber))
-    }
+            val id = idGenerator()
+            byIdempotencyKey[idempotencyKey] = id
 
-    override suspend fun execute(paymentId: String): Receipt = mutex.withLock {
-        val current = requireNotNull(tracked[paymentId]) { "Unknown payment $paymentId" }
-        val cfg = config.get()
-        val source = cfg.sourceAccount
-        val amount = current.payment.amount
-
-        if (source.balance < amount) {
-            val failed = current.payment.copy(
-                status = PaymentStatus.FAILED,
-                executedAt = now(),
-                failureReason = "Insufficient balance",
-            )
-            tracked[paymentId] = current.copy(payment = failed)
-            return@withLock receiptOf(
-                failed, ReceiptKind.FINAL, source, current.depositAccountNumber,
-                message = "Insufficient balance: available ${source.balance}, required $amount",
-            )
+            val result = if (request.amount > approvalThreshold) {
+                TransferResult(
+                    id = id,
+                    status = PaymentStatus.AWAITING_APPROVAL,
+                    amount = request.amount,
+                    approvalId = "apr-${UUID.randomUUID().toString().take(8)}",
+                )
+            } else {
+                execute(id, request.amount)
+            }
+            val releaseAt = if (result.status == PaymentStatus.AWAITING_APPROVAL) now() + approvalDelay else null
+            tracked[id] = Tracked(result, releaseAt)
+            result
         }
 
-        config.update(cfg.copy(sourceAccount = source.copy(balance = source.balance - amount)))
-        val tracking = trackingGenerator()
-        val success = current.payment.copy(
-            status = PaymentStatus.SUCCESS,
-            executedAt = now(),
-            trackingCode = tracking,
-        )
-        tracked[paymentId] = current.copy(payment = success)
-        receiptOf(
-            success, ReceiptKind.FINAL, source, current.depositAccountNumber,
-            trackingCode = tracking, message = "Transfer completed",
-        )
+    override suspend fun getTransfer(id: String): TransferResult = mutex.withLock { resolve(id) }
+
+    override suspend fun submitAction(id: String, otp: String): TransferResult = mutex.withLock { resolve(id) }
+
+    /** Returns the current state, releasing a parked transfer once its delay has elapsed. */
+    private suspend fun resolve(id: String): TransferResult {
+        val current = requireNotNull(tracked[id]) { "Unknown transfer $id" }
+        val releaseAt = current.releaseAt
+        if (current.result.status != PaymentStatus.AWAITING_APPROVAL || releaseAt == null || now() < releaseAt) {
+            return current.result
+        }
+        val released = execute(id, current.result.amount)
+        tracked[id] = Tracked(released, null)
+        return released
     }
 
-    override suspend fun get(paymentId: String): Payment? = mutex.withLock { tracked[paymentId]?.payment }
-
-    private fun receiptOf(
-        payment: Payment,
-        kind: ReceiptKind,
-        source: SourceAccount,
-        depositAccountNumber: String?,
-        trackingCode: String? = null,
-        message: String? = null,
-    ): Receipt = Receipt(
-        paymentId = payment.id,
-        kind = kind,
-        status = payment.status,
-        amount = payment.amount,
-        sourceName = source.name,
-        sourceAccount = source.accountNumber,
-        depositName = payment.depositAccountName,
-        depositId = payment.depositId,
-        depositAccount = depositAccountNumber,
-        issuedAt = now(),
-        trackingCode = trackingCode,
-        message = message,
-    )
+    /** Moves the money: deducts the balance, or fails without moving funds if it cannot cover it. */
+    private suspend fun execute(id: String, amount: Long): TransferResult {
+        val cfg = config.get()
+        val source = cfg.sourceAccount
+        if (source.balance < amount) {
+            return TransferResult(
+                id = id,
+                status = PaymentStatus.FAILED,
+                amount = amount,
+                failureReason = "Insufficient balance: available ${source.balance}, required $amount",
+            )
+        }
+        config.update(cfg.copy(sourceAccount = source.copy(balance = source.balance - amount)))
+        return TransferResult(
+            id = id,
+            status = PaymentStatus.COMPLETED,
+            amount = amount,
+            providerReference = referenceGenerator(),
+        )
+    }
 }

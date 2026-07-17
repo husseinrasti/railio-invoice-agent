@@ -1,23 +1,18 @@
 import type { CardWire } from "@/lib/types";
-import ApprovalCard from "./ApprovalCard";
+import ActionPendingCard from "./ActionPendingCard";
+import ApprovalPendingCard from "./ApprovalPendingCard";
 import InvoiceCard from "./InvoiceCard";
 import ReceiptCard from "./ReceiptCard";
 
 /** Dispatches an SSE card payload to the right card component. */
-export default function ChatCard({
-  card,
-  runId,
-  onApprove,
-}: {
-  card: CardWire;
-  runId: string;
-  onApprove: (runId: string, approved: boolean) => void;
-}) {
+export default function ChatCard({ card }: { card: CardWire }) {
   switch (card.kind) {
     case "invoice":
       return <InvoiceCard invoice={card.invoice} />;
-    case "approval":
-      return <ApprovalCard approval={card.approval} runId={runId} onApprove={onApprove} />;
+    case "approval_pending":
+      return <ApprovalPendingCard awaiting={card.approvalPending} />;
+    case "action_pending":
+      return <ActionPendingCard awaiting={card.actionPending} />;
     case "receipt":
       return <ReceiptCard receipt={card.receipt} />;
   }

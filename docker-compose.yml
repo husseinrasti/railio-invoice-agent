@@ -1,53 +1,73 @@
 # Invoice Agent — full stack: Ollama (LLM) + backend (Ktor/Koog) + frontend (Next.js).
-# Service Dockerfiles are wired in a later step; this skeleton fixes the topology,
-# networking, and env plumbing.
+#
+# Ports avoid the Railio stack, which already owns 8080 (API), 3000/3001 (dashboards),
+# 5432 and 6379 on the host. Ours default to 8082 (backend) and 3002 (frontend).
 services:
+  # Ollama runs on the HOST by default, not here — see `bundled-ollama` below for why.
+  #
+  # This service is opt-in for hosts with no local Ollama:
+  #   docker compose --profile bundled-ollama up
+  # then set OLLAMA_BASE_URL=http://ollama:11434.
+  #
+  # On macOS prefer the host's Ollama: a container gets no access to Apple's GPU, so inference here
+  # is CPU-only, and the Docker VM (~8GB by default) cannot hold a 12B model — llama-server is
+  # OOM-killed ("signal: killed"). If you do use this, pick a small model (e.g. qwen3.5:4b) and give
+  # Docker Desktop enough memory.
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+    profiles: ["bundled-ollama"]
+    expose:
+      - "11434"
     volumes:
-      - ollama-models:/root/.ollama
+      # Reuse the models already pulled on the host instead of re-downloading gigabytes.
+      # Read-only, and only `models/` — the rest of ~/.ollama holds keys and history.
+      - ${HOME}/.ollama/models:/root/.ollama/models:ro
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 12
 
-  # Pulls the default model once, then exits. Keeps `ollama` service generic.
-  ollama-pull:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen3.5:4b}"]
-    restart: "no"
-
   backend:
     build:
       context: ./backend
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      - "${BACKEND_PORT:-8082}:8080"
     environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:4b}
+      # The host's Ollama, which has the machine's full RAM and real GPU acceleration. Docker
+      # Desktop proxies host.docker.internal to the host, so a 127.0.0.1-bound Ollama is reachable
+      # with no rebinding. Override to http://ollama:11434 to use the bundled service instead.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
       AGENT_SECRET: ${AGENT_SECRET:-}
-    depends_on:
-      ollama:
-        condition: service_healthy
+      # `mock` runs fully offline; `railio` proposes real transfers to Railio.
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      # Seeds a fresh config. `localhost` here would mean this container, so reach the host's
+      # Railio via host.docker.internal. The Config page owns these after first run.
+      RAILIO_BASE_URL: ${RAILIO_BASE_URL:-http://host.docker.internal:8080}
+      RAILIO_CLIENT_ID: ${RAILIO_CLIENT_ID:-}
+      # Passed through from the host env only — never baked into the image or config.json.
+      RAILIO_CLIENT_SECRET: ${RAILIO_CLIENT_SECRET:-}
+      CONFIG_PATH: /app/data/config.json
+      MOCK_APPROVAL_THRESHOLD: ${MOCK_APPROVAL_THRESHOLD:-10000000}
+      MOCK_APPROVAL_DELAY_SECONDS: ${MOCK_APPROVAL_DELAY_SECONDS:-8}
+    volumes:
+      # Keeps the edited config across restarts.
+      - backend-data:/app/data
+    extra_hosts:
+      # Docker Desktop provides this automatically; declaring it keeps Linux working too.
+      - "host.docker.internal:host-gateway"
 
   frontend:
     build:
       context: ./frontend
       args:
-        # Baked into the client bundle at build time (browser-reachable URL).
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        # Baked into the client bundle at build time, so it must be the URL the *browser* uses.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8082}
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3002}:3000"
     depends_on:
       - backend
 
 volumes:
-  ollama-models:
+  backend-data:

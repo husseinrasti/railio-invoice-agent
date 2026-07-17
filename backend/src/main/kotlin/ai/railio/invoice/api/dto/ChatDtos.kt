@@ -10,10 +10,6 @@ data class ChatRequest(val message: String)
 @Serializable
 data class ChatStartedResponse(val runId: String)
 
-/** Body of `POST /chat/{runId}/approve`. */
-@Serializable
-data class ApproveRequest(val approved: Boolean)
-
 /** Generic acknowledgement for fire-and-forget POSTs. */
 @Serializable
 data class StatusResponse(val status: String)

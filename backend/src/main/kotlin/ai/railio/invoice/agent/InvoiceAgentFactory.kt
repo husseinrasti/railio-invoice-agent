@@ -2,9 +2,8 @@ package ai.railio.invoice.agent
 
 import ai.railio.invoice.agent.tools.InvoiceAgentToolSet
 import ai.railio.invoice.domain.port.AgentEventBus
-import ai.railio.invoice.domain.usecase.CreatePaymentUseCase
-import ai.railio.invoice.domain.usecase.EvaluateInvoiceUseCase
-import ai.railio.invoice.domain.usecase.ExecutePaymentUseCase
+import ai.railio.invoice.domain.usecase.BuildReceiptUseCase
+import ai.railio.invoice.domain.usecase.SubmitTransferUseCase
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.EventHandler
@@ -17,9 +16,8 @@ import org.slf4j.LoggerFactory
  */
 class InvoiceAgentFactory(
     private val provider: OllamaExecutorProvider,
-    private val evaluate: EvaluateInvoiceUseCase,
-    private val createPayment: CreatePaymentUseCase,
-    private val executePayment: ExecutePaymentUseCase,
+    private val submitTransfer: SubmitTransferUseCase,
+    private val buildReceipt: BuildReceiptUseCase,
     private val bus: AgentEventBus,
 ) {
     private val log = LoggerFactory.getLogger(InvoiceAgentFactory::class.java)
@@ -29,9 +27,13 @@ class InvoiceAgentFactory(
         promptExecutor = provider.executor,
         llmModel = provider.model,
         toolRegistry = ToolRegistry {
-            tools(InvoiceAgentToolSet(runId, state, bus, evaluate, createPayment, executePayment))
+            tools(InvoiceAgentToolSet(runId, state, bus, submitTransfer, buildReceipt))
         },
         systemPrompt = AgentPrompts.AGENTIC_SYSTEM,
+        // Backstop against a model that will not stop. The tools already refuse to do work once the
+        // run has an answer, so extra turns are inert and cost only latency — hence a generous cap
+        // rather than a tight one, which a couple of stray calls would trip on a healthy run.
+        maxIterations = MAX_ITERATIONS,
     ) {
         install(EventHandler.Feature) {
             onLLMCallStarting { log.debug("[{}] LLM call starting", runId) }
@@ -40,5 +42,9 @@ class InvoiceAgentFactory(
             onToolCallCompleted { ctx -> log.info("[{}] tool <- {}", runId, ctx.toolName) }
             onAgentExecutionFailed { ctx -> log.error("[{}] agent failed", runId, ctx.error) }
         }
+    }
+
+    private companion object {
+        const val MAX_ITERATIONS = 20
     }
 }

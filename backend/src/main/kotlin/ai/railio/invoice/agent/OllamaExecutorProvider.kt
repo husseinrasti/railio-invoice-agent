@@ -11,14 +11,14 @@ import ai.koog.prompt.llm.LLModel
  * [OllamaClient] and an [LLModel] reference for the configured model tag.
  *
  * The model reference reuses the capabilities of a predefined Qwen 3 model and overrides only the id,
- * so any pulled `qwen3:*` tag (default `qwen3.5:4b`) works without hand-listing capabilities.
+ * so any pulled `qwen3:*` tag (default `gemma4:12b`) works without hand-listing capabilities.
  *
  * @param baseUrl Ollama server base URL.
- * @param modelId Ollama model tag (e.g. `qwen3.5:4b`).
+ * @param modelId Ollama model tag (e.g. `gemma4:12b`).
  */
 class OllamaExecutorProvider(
     baseUrl: String = OllamaClient.DEFAULT_BASE_URL,
-    modelId: String = "qwen3.5:4b",
+    modelId: String = "gemma4:12b",
 ) {
     /** Underlying client, exposed for streaming (`executeStreaming`) at the API layer. */
     val client: OllamaClient = OllamaClient(baseUrl = baseUrl)

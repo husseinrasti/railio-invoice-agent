@@ -10,13 +10,23 @@ export interface InvoiceView {
   depositId: string;
 }
 
+/** Lifecycle states Railio reports. A created payment is not a paid one. */
+export type PaymentStatus =
+  | "CREATED"
+  | "EXECUTING"
+  | "AWAITING_APPROVAL"
+  | "AWAITING_ACTION"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED";
+
 export interface ReceiptView {
   paymentId: string;
   kind: "PREVIEW" | "FINAL";
-  status: "PENDING" | "AWAITING_APPROVAL" | "SUCCESS" | "FAILED";
+  status: PaymentStatus;
   amount: number;
-  sourceName: string;
-  sourceAccount: string;
+  sourceLabel: string;
   depositName: string;
   depositId: string;
   depositAccount?: string | null;
@@ -25,18 +35,30 @@ export interface ReceiptView {
   message?: string | null;
 }
 
-export interface ApprovalView {
+/**
+ * A payment parked for a human's approval. Read-only: approval happens in the
+ * Railio dashboard, so this card has no action buttons.
+ */
+export interface ApprovalPendingView {
   paymentId: string;
+  approvalId?: string | null;
   invoice: InvoiceView;
   amount: number;
   depositAccountName: string;
   depositId: string;
-  reasons: string[];
+}
+
+/** A payment parked on an interactive provider step a human must complete. */
+export interface ActionPendingView {
+  paymentId: string;
+  actionType?: string | null;
+  actionContext?: string | null;
 }
 
 export type CardWire =
   | { kind: "invoice"; invoice: InvoiceView }
-  | { kind: "approval"; approval: ApprovalView }
+  | { kind: "approval_pending"; approvalPending: ApprovalPendingView }
+  | { kind: "action_pending"; actionPending: ActionPendingView }
   | { kind: "receipt"; receipt: ReceiptView };
 
 export interface LogEntry {
@@ -63,10 +85,24 @@ export interface OllamaView {
   model: string;
 }
 
+/**
+ * Railio connection settings. There is no secret field: the client secret lives
+ * in the backend environment and is reported only as `hasSecret`.
+ */
+export interface RailioView {
+  baseUrl: string;
+  clientId: string;
+  hasSecret: boolean;
+}
+
+/**
+ * Note the absence of a spending cap: limits and approval thresholds are Railio
+ * policies set by a human in the Railio dashboard, not app settings.
+ */
 export interface ConfigView {
   sourceAccount: SourceAccountView;
   depositAccounts: DepositAccountView[];
-  autoApprovalCap: number;
+  railio: RailioView;
   ollama: OllamaView;
   apiUrl?: string | null;
   hasSecret: boolean;

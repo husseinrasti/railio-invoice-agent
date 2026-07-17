@@ -5,8 +5,10 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.exists
+import kotlin.io.path.readText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class JsonConfigRepositoryTest {
@@ -24,26 +26,36 @@ class JsonConfigRepositoryTest {
 
         assertTrue(path.exists())
         assertEquals(3, config.depositAccounts.size)
-        assertEquals("qwen3.5:4b", config.ollama.model)
+        assertEquals("gemma4:12b", config.ollama.model)
     }
 
     @Test
     fun `update persists and is read back`() = runTest {
         val repo = repo()
-        val updated = testConfig(cap = 77_000_000, balance = 123_456_789)
+        val updated = testConfig(balance = 123_456_789)
 
         repo.update(updated)
         val readBack = repo.get()
 
-        assertEquals(77_000_000, readBack.autoApprovalCap)
         assertEquals(123_456_789, readBack.sourceAccount.balance)
     }
 
     @Test
     fun `config survives across repository instances`() = runTest {
-        JsonConfigRepository(tempDir.resolve("shared.json")).update(testConfig(cap = 5))
+        JsonConfigRepository(tempDir.resolve("shared.json")).update(testConfig(balance = 5))
         val reopened = JsonConfigRepository(tempDir.resolve("shared.json")).get()
 
-        assertEquals(5, reopened.autoApprovalCap)
+        assertEquals(5, reopened.sourceAccount.balance)
+    }
+
+    @Test
+    fun `the railio client secret is never written to disk`() = runTest {
+        val path = tempDir.resolve("config.json")
+        JsonConfigRepository(path).update(testConfig())
+
+        val onDisk = path.readText()
+
+        assertFalse(onDisk.contains("clientSecret", ignoreCase = true), "the secret must live in the env only")
+        assertFalse(onDisk.contains("sk_", ignoreCase = true))
     }
 }
