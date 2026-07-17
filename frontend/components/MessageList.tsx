@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ChatItem } from "@/lib/useChat";
+import type { ChatItem, Thinking } from "@/lib/useChat";
 import ChatCard from "./cards/ChatCard";
+import ThinkingIndicator from "./ThinkingIndicator";
 
 /**
  * Renders the chat transcript: user bubbles, streamed assistant text, error notices, and inline
  * invoice/status/receipt cards.
  */
-export default function MessageList({ items }: { items: ChatItem[] }) {
+export default function MessageList({
+  items,
+  thinking,
+}: {
+  items: ChatItem[];
+  thinking?: Thinking | null;
+}) {
   const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [items]);
+  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [items, thinking]);
 
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-6">
@@ -56,6 +63,7 @@ export default function MessageList({ items }: { items: ChatItem[] }) {
             );
         }
       })}
+      <ThinkingIndicator thinking={thinking ?? null} />
       <div ref={endRef} />
     </div>
   );

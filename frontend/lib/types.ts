@@ -80,10 +80,30 @@ export interface DepositAccountView {
   accountNumber: string;
 }
 
+export type LlmProvider = "OLLAMA" | "OPENROUTER";
+
 export interface OllamaView {
   baseUrl: string;
   model: string;
 }
+
+/**
+ * OpenRouter settings. Like Railio, the API key is not a field: it lives in the
+ * backend environment and is reported only as `hasApiKey`.
+ */
+export interface OpenRouterView {
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+}
+
+/** Model ids offered in the picker for OpenRouter (the field stays editable). */
+export const OPENROUTER_MODELS = [
+  "z-ai/glm-5.2",
+  "openai/gpt-5.6-luna",
+  "moonshotai/kimi-k3",
+  "qwen/qwen3.6-flash",
+];
 
 /**
  * Railio connection settings. There is no secret field: the client secret lives
@@ -103,7 +123,15 @@ export interface ConfigView {
   sourceAccount: SourceAccountView;
   depositAccounts: DepositAccountView[];
   railio: RailioView;
+  llmProvider: LlmProvider;
   ollama: OllamaView;
+  openRouter: OpenRouterView;
   apiUrl?: string | null;
   hasSecret: boolean;
+}
+
+/** SSE "thinking" payload: the model is (or has stopped) working. */
+export interface ThinkingWire {
+  active: boolean;
+  label: string;
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchConfig, saveConfig, setSecret } from "@/lib/api";
-import type { ConfigView, DepositAccountView } from "@/lib/types";
+import { OPENROUTER_MODELS, type ConfigView, type DepositAccountView } from "@/lib/types";
 
 const MAX_DEPOSITS = 3;
 
@@ -37,6 +37,9 @@ export default function ConfigPage() {
           baseUrl: config.railio.baseUrl,
           clientId: config.railio.clientId,
         },
+        llmProvider: config.llmProvider,
+        ollama: config.ollama,
+        openRouter: { baseUrl: config.openRouter.baseUrl, model: config.openRouter.model },
         ...(secret ? { agentSecret: secret } : {}),
       };
       const saved = await saveConfig(body);
@@ -54,6 +57,85 @@ export default function ConfigPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-8 p-6">
       <h1 className="text-xl font-semibold">Configuration</h1>
+
+      {/* LLM provider */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-slate-500">Language model</h2>
+        <p className="text-xs text-slate-400">
+          Where the agent&apos;s reasoning runs. Switching takes effect on your next message.
+        </p>
+        <div className="flex gap-2">
+          {(["OLLAMA", "OPENROUTER"] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => update({ llmProvider: p })}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+                config.llmProvider === p
+                  ? "border-brand-500 bg-brand-50 font-medium text-brand-700 dark:bg-brand-950/40 dark:text-brand-300"
+                  : "border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-700"
+              }`}
+            >
+              {p === "OLLAMA" ? "Ollama (local)" : "OpenRouter (cloud)"}
+            </button>
+          ))}
+        </div>
+
+        {config.llmProvider === "OLLAMA" ? (
+          <>
+            <Field label="Ollama base URL">
+              <input
+                className="input font-mono"
+                value={config.ollama.baseUrl}
+                onChange={(e) => update({ ollama: { ...config.ollama, baseUrl: e.target.value } })}
+              />
+            </Field>
+            <Field label="Model tag">
+              <input
+                className="input font-mono"
+                value={config.ollama.model}
+                onChange={(e) => update({ ollama: { ...config.ollama, model: e.target.value } })}
+              />
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="Model">
+              <input
+                className="input font-mono"
+                list="openrouter-models"
+                value={config.openRouter.model}
+                onChange={(e) => update({ openRouter: { ...config.openRouter, model: e.target.value } })}
+              />
+              <datalist id="openrouter-models">
+                {OPENROUTER_MODELS.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="OpenRouter base URL">
+              <input
+                className="input font-mono"
+                value={config.openRouter.baseUrl}
+                onChange={(e) => update({ openRouter: { ...config.openRouter, baseUrl: e.target.value } })}
+              />
+            </Field>
+            <p className="text-xs text-slate-400">
+              API key:{" "}
+              {config.openRouter.hasApiKey ? (
+                <span className="text-emerald-600">set via OPENROUTER_API_KEY</span>
+              ) : (
+                <span className="text-amber-600">not set — export OPENROUTER_API_KEY</span>
+              )}
+              . Read from the environment only; never stored or shown here.
+            </p>
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              Rate limits: 10 requests/minute, 50/day. One invoice makes several model calls, so a few
+              invoices can exhaust the minute budget — the agent will ask you to wait or switch to Ollama.
+            </p>
+          </>
+        )}
+      </section>
 
       {/* Railio */}
       <section className="space-y-3">

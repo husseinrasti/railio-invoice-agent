@@ -2,7 +2,13 @@
 
 import { useCallback, useRef, useState } from "react";
 import { startChat, streamUrl } from "./api";
-import type { CardWire, LogEntry } from "./types";
+import type { CardWire, LogEntry, ThinkingWire } from "./types";
+
+/** Whether the model is currently working, and which model. */
+export interface Thinking {
+  active: boolean;
+  label: string;
+}
 
 export type ChatItem =
   | { type: "user"; id: string; text: string }
@@ -21,6 +27,7 @@ export function useChat() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [thinking, setThinking] = useState<Thinking | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const runIdRef = useRef<string | null>(null);
   const assistantIdRef = useRef<string | null>(null);
@@ -29,6 +36,7 @@ export function useChat() {
     esRef.current?.close();
     esRef.current = null;
     assistantIdRef.current = null;
+    setThinking(null);
     setBusy(false);
   }, []);
 
@@ -78,7 +86,14 @@ export function useChat() {
       const es = new EventSource(streamUrl(runId));
       esRef.current = es;
 
-      es.addEventListener("token", (e) => appendToken(JSON.parse((e as MessageEvent).data).text));
+      es.addEventListener("thinking", (e) => {
+        const d = JSON.parse((e as MessageEvent).data) as ThinkingWire;
+        setThinking(d.active ? { active: true, label: d.label } : null);
+      });
+      es.addEventListener("token", (e) => {
+        setThinking(null); // real text is arriving; the working indicator gives way to it
+        appendToken(JSON.parse((e as MessageEvent).data).text);
+      });
       es.addEventListener("assistant", (e) => finalizeAssistant(JSON.parse((e as MessageEvent).data).text));
       es.addEventListener("tool_call", (e) => {
         const d = JSON.parse((e as MessageEvent).data) as LogEntry;
@@ -107,5 +122,5 @@ export function useChat() {
     setLogs([]);
   }, [closeStream]);
 
-  return { items, logs, busy, send, reset };
+  return { items, logs, busy, thinking, send, reset };
 }
