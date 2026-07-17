@@ -3,15 +3,24 @@
 # Ports avoid the Railio stack, which already owns 8080 (API), 3000/3001 (dashboards),
 # 5432 and 6379 on the host. Ours default to 8082 (backend) and 3002 (frontend).
 services:
+  # Ollama runs on the HOST by default, not here — see `bundled-ollama` below for why.
+  #
+  # This service is opt-in for hosts with no local Ollama:
+  #   docker compose --profile bundled-ollama up
+  # then set OLLAMA_BASE_URL=http://ollama:11434.
+  #
+  # On macOS prefer the host's Ollama: a container gets no access to Apple's GPU, so inference here
+  # is CPU-only, and the Docker VM (~8GB by default) cannot hold a 12B model — llama-server is
+  # OOM-killed ("signal: killed"). If you do use this, pick a small model (e.g. qwen3.5:4b) and give
+  # Docker Desktop enough memory.
   ollama:
     image: ollama/ollama:latest
-    # Not published by default: the host usually already runs Ollama on 11434, and only the
-    # backend needs to reach this one (over the compose network).
+    profiles: ["bundled-ollama"]
     expose:
       - "11434"
     volumes:
-      # Reuse the models already pulled on the host instead of re-downloading gigabytes into a
-      # fresh volume. Read-only, and only `models/` — the rest of ~/.ollama holds keys and history.
+      # Reuse the models already pulled on the host instead of re-downloading gigabytes.
+      # Read-only, and only `models/` — the rest of ~/.ollama holds keys and history.
       - ${HOME}/.ollama/models:/root/.ollama/models:ro
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -19,26 +28,16 @@ services:
       timeout: 5s
       retries: 12
 
-  # Pulls the model into the named volume. Only needed when NOT reusing the host's models, so it
-  # sits behind a profile: `docker compose --profile pull up ollama-pull`.
-  ollama-pull:
-    image: ollama/ollama:latest
-    profiles: ["pull"]
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-gemma4:12b}"]
-    restart: "no"
-
   backend:
     build:
       context: ./backend
     ports:
       - "${BACKEND_PORT:-8082}:8080"
     environment:
-      OLLAMA_BASE_URL: http://ollama:11434
+      # The host's Ollama, which has the machine's full RAM and real GPU acceleration. Docker
+      # Desktop proxies host.docker.internal to the host, so a 127.0.0.1-bound Ollama is reachable
+      # with no rebinding. Override to http://ollama:11434 to use the bundled service instead.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
       AGENT_SECRET: ${AGENT_SECRET:-}
       # `mock` runs fully offline; `railio` proposes real transfers to Railio.
@@ -58,9 +57,6 @@ services:
     extra_hosts:
       # Docker Desktop provides this automatically; declaring it keeps Linux working too.
       - "host.docker.internal:host-gateway"
-    depends_on:
-      ollama:
-        condition: service_healthy
 
   frontend:
     build:
