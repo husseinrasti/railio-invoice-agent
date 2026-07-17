@@ -37,8 +37,15 @@ services:
       # The host's Ollama, which has the machine's full RAM and real GPU acceleration. Docker
       # Desktop proxies host.docker.internal to the host, so a 127.0.0.1-bound Ollama is reachable
       # with no rebinding. Override to http://ollama:11434 to use the bundled service instead.
+      # LLM provider: `ollama` (local) or `openrouter` (cloud). Switchable in the UI.
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
+      # OpenRouter key passed through from the host env only — never baked into the image or config.json.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4o}
+      OPENROUTER_RPM: ${OPENROUTER_RPM:-10}
+      OPENROUTER_RPD: ${OPENROUTER_RPD:-50}
       AGENT_SECRET: ${AGENT_SECRET:-}
       # `mock` runs fully offline; `railio` proposes real transfers to Railio.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}

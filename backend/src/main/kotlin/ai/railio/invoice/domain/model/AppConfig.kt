@@ -31,7 +31,7 @@ data class OllamaSettings(
  */
 data class OpenRouterSettings(
     val baseUrl: String = "https://openrouter.ai/api/v1",
-    val model: String = "z-ai/glm-5.2",
+    val model: String = "openai/gpt-4o",
 )
 
 /**

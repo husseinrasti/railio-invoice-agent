@@ -43,7 +43,7 @@ object Env {
     val openRouterBaseUrl: String get() = get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
     /** OpenRouter model id used to seed a fresh config; editable on the Config page. */
-    val openRouterModel: String get() = get("OPENROUTER_MODEL", "z-ai/glm-5.2")
+    val openRouterModel: String get() = get("OPENROUTER_MODEL", "openai/gpt-4o")
 
     /** OpenRouter requests allowed per minute (free-tier default). */
     val openRouterPerMinute: Int get() = get("OPENROUTER_RPM", "10").toIntOrNull() ?: 10

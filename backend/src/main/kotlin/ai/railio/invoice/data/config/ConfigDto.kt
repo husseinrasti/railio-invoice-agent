@@ -49,7 +49,7 @@ data class RailioSettingsDto(
 @Serializable
 data class OpenRouterSettingsDto(
     val baseUrl: String = "https://openrouter.ai/api/v1",
-    val model: String = "z-ai/glm-5.2",
+    val model: String = "openai/gpt-4o",
 )
 
 fun AppConfigDto.toDomain(): AppConfig = AppConfig(

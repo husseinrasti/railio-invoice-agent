@@ -99,6 +99,7 @@ export interface OpenRouterView {
 
 /** Model ids offered in the picker for OpenRouter (the field stays editable). */
 export const OPENROUTER_MODELS = [
+  "openai/gpt-4o",
   "z-ai/glm-5.2",
   "openai/gpt-5.6-luna",
   "moonshotai/kimi-k3",
