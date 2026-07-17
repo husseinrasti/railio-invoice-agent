@@ -4,7 +4,9 @@ A chat-first agent that reads invoices from text (and text‑extractable PDFs) a
 payment to [Railio](https://railio.ai), a financial‑execution layer that decides and executes the
 money movement (Iranian bank transfer: PAYA/SATNA to a supplier IBAN).
 
-The agent is **local‑first** for its reasoning: it talks to a local [Ollama](https://ollama.com)
+The agent runs on **either a local Ollama model or a cloud model via
+[OpenRouter](https://openrouter.ai)** — switchable in the Config UI. It is **local‑first** by
+default: out of the box it talks to a local [Ollama](https://ollama.com)
 model by default and never sends invoice text to a cloud LLM unless you configure one.
 
 > **The agent does not move money — by design.**
@@ -119,13 +121,13 @@ reflects it.
 | Layer     | Choice                                                                 |
 |-----------|------------------------------------------------------------------------|
 | Language  | Kotlin 2.3.21 (JVM 21)                                                  |
-| Agent     | Koog 1.0.0 (Ollama executor, tool-calling AIAgent, EventHandler, streaming) |
+| Agent     | Koog 1.0.0 (Ollama + OpenRouter executors, tool-calling AIAgent, EventHandler, streaming) |
 | Server    | Ktor 3.5.0 (Netty, SSE, ContentNegotiation, CORS, StatusPages)         |
 | DI        | Koin 4.2 with Koin Annotations (KSP, compile‑time verified)            |
 | Async     | Kotlin Coroutines 1.11                                                  |
 | PDF       | Apache PDFBox 3.0 (text extraction)                                     |
 | Frontend  | Next.js 15 (App Router) · React 19 · Tailwind CSS                       |
-| Model     | Ollama, default `gemma4:12b` (configurable)                              |
+| Model     | Ollama (default `gemma4:12b`) or OpenRouter — switchable in the UI       |
 | Packaging | Docker + Docker Compose                                                 |
 
 ---
@@ -221,13 +223,36 @@ Key environment variables:
 |--------------------------|---------------------------|-------------------------------------------|
 | `PAYMENT_PROVIDER`       | `mock`                    | `mock` or `railio`                        |
 | `RAILIO_CLIENT_SECRET`   | *(empty)*                 | Railio credential secret — **env only**   |
+| `LLM_PROVIDER`           | `ollama`                  | `ollama` or `openrouter` (seed; UI-switchable) |
 | `OLLAMA_BASE_URL`        | `http://localhost:11434`  | Ollama server URL                         |
 | `OLLAMA_MODEL`           | `gemma4:12b`              | Model tag                                 |
+| `OPENROUTER_API_KEY`     | *(empty)*                 | OpenRouter key — **env only**             |
+| `OPENROUTER_MODEL`       | `z-ai/glm-5.2`            | OpenRouter model id                       |
+| `OPENROUTER_RPM` / `_RPD`| `10` / `50`               | OpenRouter rate limits                    |
 | `BACKEND_PORT`           | `8080`                    | Backend port                              |
 | `NEXT_PUBLIC_API_URL`    | `http://localhost:8080`   | Backend URL baked into the web client     |
 | `AGENT_SECRET`           | *(empty)*                 | Optional bearer secret for this backend   |
 | `MOCK_APPROVAL_THRESHOLD`| `10000000`                | Mock: park above this amount              |
 | `MOCK_APPROVAL_DELAY_SECONDS` | `8`                  | Mock: how long a parked transfer waits    |
+
+### Language model — Ollama or OpenRouter
+
+Pick the backend on the **Config** page (or seed it with `LLM_PROVIDER`); switching takes effect on
+the next message. The chat shows a **thinking indicator** with the model's name while it works,
+driven by real per-call activity — it appears while the model reasons and gives way to the streamed
+answer.
+
+- **Ollama** (local, default) — no key, no rate limit, runs on your machine's GPU. Set `OLLAMA_MODEL`.
+- **OpenRouter** (cloud) — one API over many models. The key is read from `OPENROUTER_API_KEY`
+  **only** — never stored or returned. Model id is free text in the UI (the four suggested ids are
+  offered as a dropdown). Free-tier limits (10/min, 50/day) are enforced: the agent refuses a run up
+  front when the budget is spent rather than firing requests that 402/429, and one invoice makes
+  several calls, so the minute budget goes quickly.
+
+> **Model compatibility.** The agent drives a two-step tool loop (`readInvoice` → `payNow`). Not
+> every model handles multi-turn tool calling well: local `gemma4:12b` completes it reliably, while
+> some hosted models mis-drive it (e.g. one errors on tool-argument formatting, another loops on the
+> first tool). Prefer a strong tool-calling model, and keep Ollama as the dependable fallback.
 
 `RAILIO_CLIENT_SECRET` is read from the environment only — never written to `config.json`, never
 returned by the config API. Use a secret manager in production; rotating it in the Railio dashboard
