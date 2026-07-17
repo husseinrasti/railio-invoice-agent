@@ -93,6 +93,9 @@ private data class LogWire(val level: String, val source: String, val message: S
 private data class TextWire(val text: String)
 
 @Serializable
+private data class ThinkingWire(val active: Boolean, val label: String)
+
+@Serializable
 private data class ErrorWire(val message: String)
 
 /** The SSE event name and JSON data for an [AgentEvent]. */
@@ -101,6 +104,7 @@ data class WireEvent(val name: String, val data: String)
 /** Serializes an [AgentEvent] to its SSE `event` name and JSON `data` payload. */
 fun AgentEvent.toWire(json: Json): WireEvent = when (this) {
     is AgentEvent.Token -> WireEvent("token", json.encodeToString(TextWire(text)))
+    is AgentEvent.Thinking -> WireEvent("thinking", json.encodeToString(ThinkingWire(active, label)))
     is AgentEvent.Assistant -> WireEvent("assistant", json.encodeToString(TextWire(text)))
     is AgentEvent.ToolCall -> WireEvent("tool_call", json.encodeToString(LogWire("INFO", name, summary)))
     is AgentEvent.Log -> WireEvent("log", json.encodeToString(LogWire(level.name, source, message)))

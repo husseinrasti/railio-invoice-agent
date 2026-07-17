@@ -28,6 +28,29 @@ object Env {
     /** Railio client id used to seed a fresh config; editable on the Config page afterwards. */
     val railioClientId: String get() = get("RAILIO_CLIENT_ID", "")
 
+    /** LLM backend to seed a fresh config with: `ollama` or `openrouter`. Editable on the Config page. */
+    val llmProvider: String get() = get("LLM_PROVIDER", "ollama").lowercase()
+
+    /**
+     * OpenRouter API key.
+     *
+     * Read from the environment **only** — never persisted to `config.json` and never returned by the
+     * config API, so it cannot leak through the UI. Same handling as the Railio secret.
+     */
+    val openRouterApiKey: String get() = get("OPENROUTER_API_KEY", "")
+
+    /** OpenRouter base URL used to seed a fresh config; editable on the Config page. */
+    val openRouterBaseUrl: String get() = get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+    /** OpenRouter model id used to seed a fresh config; editable on the Config page. */
+    val openRouterModel: String get() = get("OPENROUTER_MODEL", "z-ai/glm-5.2")
+
+    /** OpenRouter requests allowed per minute (free-tier default). */
+    val openRouterPerMinute: Int get() = get("OPENROUTER_RPM", "10").toIntOrNull() ?: 10
+
+    /** OpenRouter requests allowed per day (free-tier default). */
+    val openRouterPerDay: Int get() = get("OPENROUTER_RPD", "50").toIntOrNull() ?: 50
+
     /**
      * Railio OAuth2 client secret.
      *

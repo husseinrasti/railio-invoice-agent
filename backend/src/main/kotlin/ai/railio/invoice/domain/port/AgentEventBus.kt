@@ -13,6 +13,12 @@ interface AgentEventBus {
     /** Publishes [event] to subscribers of [runId]. */
     suspend fun emit(runId: String, event: AgentEvent)
 
+    /**
+     * Non-suspending publish, for callers that cannot suspend — notably Koog's `EventHandler`
+     * interceptors, which are plain (non-suspend) callbacks. Returns false if the buffer is full.
+     */
+    fun tryEmit(runId: String, event: AgentEvent): Boolean
+
     /** Cold [Flow] of events for [runId]; collecting begins receiving subsequently emitted events. */
     fun subscribe(runId: String): Flow<AgentEvent>
 }

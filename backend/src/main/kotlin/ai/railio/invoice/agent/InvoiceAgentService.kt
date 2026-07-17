@@ -2,6 +2,7 @@ package ai.railio.invoice.agent
 
 import ai.railio.invoice.domain.model.AgentCard
 import ai.railio.invoice.domain.model.AgentEvent
+import ai.railio.invoice.domain.model.LlmProvider
 import ai.railio.invoice.domain.model.LogLevel
 import ai.railio.invoice.domain.model.PaymentStatus
 import ai.railio.invoice.domain.model.ReceiptKind
@@ -28,6 +29,8 @@ class InvoiceAgentService(
     private val runStates: RunStateStore,
     private val pollTransfer: PollTransferUseCase,
     private val buildReceipt: BuildReceiptUseCase,
+    private val resolver: LlmResolver,
+    private val rateLimiter: RateLimiter,
 ) {
     private val log = LoggerFactory.getLogger(InvoiceAgentService::class.java)
 
@@ -36,8 +39,28 @@ class InvoiceAgentService(
         val state = runStates.create(runId)
         emitLog(runId, LogLevel.INFO, "orchestrator", "Received invoice input (${message.length} chars)")
 
+        val selection = try {
+            resolver.resolve()
+        } catch (e: Exception) {
+            emitError(runId, e.message ?: "The LLM provider is not configured.")
+            return
+        }
+
+        // Refuse a metered run up front when the budget is spent, rather than firing 429s.
+        if (selection.provider == LlmProvider.OPENROUTER) {
+            rateLimiter.retryAfter()?.let { wait ->
+                emitError(
+                    runId,
+                    "Rate limit reached for OpenRouter (10 requests/min, 50/day). " +
+                        "Try again in about ${wait.inWholeSeconds.coerceAtLeast(1)}s, or switch to Ollama in Config.",
+                )
+                return
+            }
+        }
+        emitLog(runId, LogLevel.INFO, "llm", "Using ${selection.provider.name.lowercase()} · ${selection.label}")
+
         val narration = try {
-            factory.create(runId, state).run(message)
+            factory.create(runId, state, selection).run(message)
         } catch (e: Exception) {
             // The model failing to wrap up (e.g. spinning until the iteration cap) must not lose an
             // answer we already have: the tools record the outcome as they produce it, so report that
@@ -45,7 +68,7 @@ class InvoiceAgentService(
             log.error("Run {} failed", runId, e)
             val known = state.outcome
             if (known == null) {
-                emitError(runId, e.message ?: "The agent failed while processing the invoice")
+                emitError(runId, friendlyError(e, selection))
                 return
             }
             emitLog(runId, LogLevel.WARN, "orchestrator", "The model did not finish cleanly; reporting the recorded outcome")
@@ -84,6 +107,20 @@ class InvoiceAgentService(
 
         bus.emit(runId, AgentEvent.Card(AgentCard.ReceiptIssued(buildReceipt(invoice, final, ReceiptKind.FINAL, state.sourceLabel))))
         streamNarration(runId, outcomeText(final))
+    }
+
+    /** Turns a raw LLM/transport failure into something a user can act on. */
+    private fun friendlyError(e: Exception, selection: LlmSelection): String {
+        val raw = e.message ?: ""
+        return when {
+            "429" in raw || raw.contains("rate limit", ignoreCase = true) ->
+                "OpenRouter rate limit hit mid-run (10/min, 50/day). Wait a minute, or switch to Ollama in Config."
+            "401" in raw || raw.contains("unauthor", ignoreCase = true) ->
+                "OpenRouter rejected the API key. Check OPENROUTER_API_KEY."
+            selection.provider == LlmProvider.OPENROUTER ->
+                "The OpenRouter model '${selection.label}' failed: $raw"
+            else -> raw.ifBlank { "The agent failed while processing the invoice" }
+        }
     }
 
     private fun outcomeText(result: TransferResult): String = when (result.status) {

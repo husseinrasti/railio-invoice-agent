@@ -16,6 +16,8 @@ pdfbox = "3.0.5"
 [libraries]
 # Koog agent framework
 koog-agents = { module = "ai.koog:koog-agents", version.ref = "koog" }
+# OpenRouter LLM client (cloud models alongside local Ollama). Not pulled by the umbrella.
+koog-openrouter = { module = "ai.koog:prompt-executor-openrouter-client", version.ref = "koog" }
 
 # PDF text extraction (text-extractable PDFs only; scanned PDFs are a future, vision-based feature)
 pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }

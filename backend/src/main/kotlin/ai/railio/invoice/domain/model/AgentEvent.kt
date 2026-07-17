@@ -31,6 +31,17 @@ sealed interface AgentCard {
  * [Log]s, a terminal [Done] or [Error], and the assistant's final [Assistant] message text.
  */
 sealed interface AgentEvent {
+    /**
+     * The LLM is (or has stopped) working — drives the "thinking" indicator in the UI.
+     *
+     * Emitted around each model call, so the indicator reflects real activity: on while the model
+     * reasons/decides a tool call, off while a tool runs.
+     *
+     * @property active whether the model is currently working.
+     * @property label short model/provider label to show, e.g. "openai/gpt-5.6-luna".
+     */
+    data class Thinking(val active: Boolean, val label: String) : AgentEvent
+
     /** An incremental chunk of streamed assistant text. */
     data class Token(val text: String) : AgentEvent
 

@@ -1,5 +1,14 @@
 package ai.railio.invoice.domain.model
 
+/** Which LLM backend the agent runs on. */
+enum class LlmProvider {
+    /** Local-first, on the host. No per-request cost or rate limit. */
+    OLLAMA,
+
+    /** OpenRouter — one API over many hosted models. Cloud, metered, rate-limited. */
+    OPENROUTER,
+}
+
 /**
  * Ollama connection settings. Local-first; overridable per deployment.
  *
@@ -9,6 +18,20 @@ package ai.railio.invoice.domain.model
 data class OllamaSettings(
     val baseUrl: String = "http://localhost:11434",
     val model: String = "gemma4:12b",
+)
+
+/**
+ * OpenRouter connection settings.
+ *
+ * The API **key is deliberately absent**: like the Railio secret, it is read from the environment
+ * only, so it is never written to `config.json` and never returned by the config API.
+ *
+ * @property baseUrl OpenRouter API base URL.
+ * @property model Model id to route to (e.g. `z-ai/glm-5.2`), editable in the UI.
+ */
+data class OpenRouterSettings(
+    val baseUrl: String = "https://openrouter.ai/api/v1",
+    val model: String = "z-ai/glm-5.2",
 )
 
 /**
@@ -42,7 +65,9 @@ data class RailioSettings(
  * @property depositAccounts Destination **address book**: maps the deposit name printed on an invoice
  *   to the IBAN to pay. Not a trust gate — trust is a Railio policy decision.
  * @property railio Railio API connection settings.
- * @property ollama LLM connection settings.
+ * @property llmProvider Which LLM backend the agent runs on; switchable in the UI.
+ * @property ollama Ollama connection settings (used when [llmProvider] is [LlmProvider.OLLAMA]).
+ * @property openRouter OpenRouter settings (used when [llmProvider] is [LlmProvider.OPENROUTER]).
  * @property apiUrl Externally reachable base URL of this backend (stored for later use).
  * @property agentSecret Optional shared secret; when non-blank, this backend's API requires a bearer token.
  */
@@ -50,7 +75,9 @@ data class AppConfig(
     val sourceAccount: SourceAccount,
     val depositAccounts: List<DepositAccount>,
     val railio: RailioSettings = RailioSettings(),
+    val llmProvider: LlmProvider = LlmProvider.OLLAMA,
     val ollama: OllamaSettings = OllamaSettings(),
+    val openRouter: OpenRouterSettings = OpenRouterSettings(),
     val apiUrl: String? = null,
     val agentSecret: String? = null,
 ) {

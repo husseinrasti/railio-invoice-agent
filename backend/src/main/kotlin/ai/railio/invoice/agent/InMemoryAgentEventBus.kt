@@ -24,6 +24,9 @@ class InMemoryAgentEventBus : AgentEventBus {
         flowFor(runId).emit(event)
     }
 
+    override fun tryEmit(runId: String, event: AgentEvent): Boolean =
+        flowFor(runId).tryEmit(event)
+
     override fun subscribe(runId: String): Flow<AgentEvent> = flowFor(runId).asSharedFlow()
 
     /** Snapshot of the events buffered for [runId] so far (used by tests). */

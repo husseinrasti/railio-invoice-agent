@@ -8,24 +8,21 @@ import ai.koog.prompt.llm.LLModel
 
 /**
  * Builds the Koog LLM plumbing for a local-first Ollama deployment: a [PromptExecutor] over an
- * [OllamaClient] and an [LLModel] reference for the configured model tag.
+ * [OllamaClient] and an [LLModel] for the configured model tag.
  *
- * The model reference reuses the capabilities of a predefined Qwen 3 model and overrides only the id,
- * so any pulled `qwen3:*` tag (default `gemma4:12b`) works without hand-listing capabilities.
+ * The model reference reuses a predefined Qwen 3 model's capabilities and overrides only the id, so
+ * any pulled tag works without hand-listing capabilities.
  *
  * @param baseUrl Ollama server base URL.
- * @param modelId Ollama model tag (e.g. `gemma4:12b`).
  */
 class OllamaExecutorProvider(
     baseUrl: String = OllamaClient.DEFAULT_BASE_URL,
-    modelId: String = "gemma4:12b",
 ) {
-    /** Underlying client, exposed for streaming (`executeStreaming`) at the API layer. */
-    val client: OllamaClient = OllamaClient(baseUrl = baseUrl)
+    private val client: OllamaClient = OllamaClient(baseUrl = baseUrl)
 
-    /** Executor used for one-shot prompt execution. */
+    /** Executor used by the agent. */
     val executor: PromptExecutor = MultiLLMPromptExecutor(client)
 
-    /** The configured Ollama model reference. */
-    val model: LLModel = OllamaModels.Alibaba.QWEN_3_06B.copy(id = modelId)
+    /** An [LLModel] for [modelId] (e.g. `gemma4:12b`). */
+    fun model(modelId: String): LLModel = OllamaModels.Alibaba.QWEN_3_06B.copy(id = modelId)
 }

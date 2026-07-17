@@ -3,7 +3,9 @@ package ai.railio.invoice.data.config
 import ai.railio.invoice.config.Env
 import ai.railio.invoice.domain.model.AppConfig
 import ai.railio.invoice.domain.model.DepositAccount
+import ai.railio.invoice.domain.model.LlmProvider
 import ai.railio.invoice.domain.model.OllamaSettings
+import ai.railio.invoice.domain.model.OpenRouterSettings
 import ai.railio.invoice.domain.model.RailioSettings
 import ai.railio.invoice.domain.model.SourceAccount
 import ai.railio.invoice.domain.port.ConfigRepository
@@ -87,6 +89,8 @@ object ConfigDefaults {
         // Seeded from the environment: `localhost` is the container itself once dockerised, so the
         // deployment has to supply the reachable Railio URL. The Config page owns it after that.
         railio = RailioSettings(baseUrl = Env.railioBaseUrl, clientId = Env.railioClientId),
+        llmProvider = runCatching { LlmProvider.valueOf(Env.llmProvider.uppercase()) }.getOrDefault(LlmProvider.OLLAMA),
         ollama = OllamaSettings(baseUrl = Env.ollamaBaseUrl, model = Env.ollamaModel),
+        openRouter = OpenRouterSettings(baseUrl = Env.openRouterBaseUrl, model = Env.openRouterModel),
     )
 }

@@ -2,7 +2,9 @@ package ai.railio.invoice.data.config
 
 import ai.railio.invoice.domain.model.AppConfig
 import ai.railio.invoice.domain.model.DepositAccount
+import ai.railio.invoice.domain.model.LlmProvider
 import ai.railio.invoice.domain.model.OllamaSettings
+import ai.railio.invoice.domain.model.OpenRouterSettings
 import ai.railio.invoice.domain.model.RailioSettings
 import ai.railio.invoice.domain.model.SourceAccount
 import kotlinx.serialization.Serializable
@@ -19,7 +21,9 @@ data class AppConfigDto(
     val sourceAccount: SourceAccountDto,
     val depositAccounts: List<DepositAccountDto>,
     val railio: RailioSettingsDto = RailioSettingsDto(),
+    val llmProvider: String = "OLLAMA",
     val ollama: OllamaSettingsDto = OllamaSettingsDto(),
+    val openRouter: OpenRouterSettingsDto = OpenRouterSettingsDto(),
     val apiUrl: String? = null,
     val agentSecret: String? = null,
 )
@@ -42,11 +46,19 @@ data class RailioSettingsDto(
     val clientId: String = "",
 )
 
+@Serializable
+data class OpenRouterSettingsDto(
+    val baseUrl: String = "https://openrouter.ai/api/v1",
+    val model: String = "z-ai/glm-5.2",
+)
+
 fun AppConfigDto.toDomain(): AppConfig = AppConfig(
     sourceAccount = SourceAccount(sourceAccount.name, sourceAccount.accountNumber, sourceAccount.balance),
     depositAccounts = depositAccounts.map { DepositAccount(it.name, it.accountNumber) },
     railio = RailioSettings(railio.baseUrl, railio.clientId),
+    llmProvider = runCatching { LlmProvider.valueOf(llmProvider.uppercase()) }.getOrDefault(LlmProvider.OLLAMA),
     ollama = OllamaSettings(ollama.baseUrl, ollama.model),
+    openRouter = OpenRouterSettings(openRouter.baseUrl, openRouter.model),
     apiUrl = apiUrl,
     agentSecret = agentSecret,
 )
@@ -55,7 +67,9 @@ fun AppConfig.toDto(): AppConfigDto = AppConfigDto(
     sourceAccount = SourceAccountDto(sourceAccount.name, sourceAccount.accountNumber, sourceAccount.balance),
     depositAccounts = depositAccounts.map { DepositAccountDto(it.name, it.accountNumber) },
     railio = RailioSettingsDto(railio.baseUrl, railio.clientId),
+    llmProvider = llmProvider.name,
     ollama = OllamaSettingsDto(ollama.baseUrl, ollama.model),
+    openRouter = OpenRouterSettingsDto(openRouter.baseUrl, openRouter.model),
     apiUrl = apiUrl,
     agentSecret = agentSecret,
 )

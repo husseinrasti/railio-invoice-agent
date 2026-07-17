@@ -23,12 +23,22 @@ import io.ktor.server.routing.route
 fun Route.configRoutes(getConfig: GetConfigUseCase, updateConfig: UpdateConfigUseCase) {
     route("/config") {
         get {
-            call.respond(getConfig().toView(hasRailioSecret = Env.railioClientSecret.isNotBlank()))
+            call.respond(
+                getConfig().toView(
+                    hasRailioSecret = Env.railioClientSecret.isNotBlank(),
+                    hasOpenRouterKey = Env.openRouterApiKey.isNotBlank(),
+                ),
+            )
         }
         put {
             val request = call.receive<ConfigUpdateRequest>()
             val updated = updateConfig(request.toDomain(existing = getConfig()))
-            call.respond(updated.toView(hasRailioSecret = Env.railioClientSecret.isNotBlank()))
+            call.respond(
+                updated.toView(
+                    hasRailioSecret = Env.railioClientSecret.isNotBlank(),
+                    hasOpenRouterKey = Env.openRouterApiKey.isNotBlank(),
+                ),
+            )
         }
     }
 }

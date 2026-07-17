@@ -38,6 +38,7 @@ dependencies {
 
     // Koog agent framework
     implementation(libs.koog.agents)
+    implementation(libs.koog.openrouter)
 
     // PDF text extraction (text-extractable PDFs only)
     implementation(libs.pdfbox)

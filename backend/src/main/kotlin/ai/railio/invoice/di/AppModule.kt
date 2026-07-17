@@ -4,7 +4,9 @@ import ai.railio.invoice.agent.ConversationStore
 import ai.railio.invoice.agent.InMemoryAgentEventBus
 import ai.railio.invoice.agent.InvoiceAgentFactory
 import ai.railio.invoice.agent.InvoiceAgentService
+import ai.railio.invoice.agent.LlmResolver
 import ai.railio.invoice.agent.OllamaExecutorProvider
+import ai.railio.invoice.agent.RateLimiter
 import ai.railio.invoice.agent.RunStateStore
 import ai.railio.invoice.config.Env
 import ai.railio.invoice.data.config.JsonConfigRepository
@@ -107,8 +109,13 @@ class AppModule {
     )
 
     @Single
-    fun ollamaExecutorProvider(): OllamaExecutorProvider =
-        OllamaExecutorProvider(baseUrl = Env.ollamaBaseUrl, modelId = Env.ollamaModel)
+    fun llmResolver(config: ConfigRepository): LlmResolver =
+        // The OpenRouter key comes from the environment only — never from stored config.
+        LlmResolver(config, openRouterApiKey = { Env.openRouterApiKey })
+
+    @Single
+    fun rateLimiter(): RateLimiter =
+        RateLimiter(perMinute = Env.openRouterPerMinute, perDay = Env.openRouterPerDay)
 
     @Single
     fun selectSourceAccountUseCase(provider: PaymentProvider) = SelectSourceAccountUseCase(provider)
@@ -143,11 +150,11 @@ class AppModule {
 
     @Single
     fun invoiceAgentFactory(
-        provider: OllamaExecutorProvider,
         submit: SubmitTransferUseCase,
         receipts: BuildReceiptUseCase,
         bus: AgentEventBus,
-    ): InvoiceAgentFactory = InvoiceAgentFactory(provider, submit, receipts, bus)
+        limiter: RateLimiter,
+    ): InvoiceAgentFactory = InvoiceAgentFactory(submit, receipts, bus, limiter)
 
     @Single
     fun invoiceAgentService(
@@ -156,5 +163,7 @@ class AppModule {
         runStates: RunStateStore,
         poll: PollTransferUseCase,
         receipts: BuildReceiptUseCase,
-    ): InvoiceAgentService = InvoiceAgentService(factory, bus, runStates, poll, receipts)
+        resolver: LlmResolver,
+        limiter: RateLimiter,
+    ): InvoiceAgentService = InvoiceAgentService(factory, bus, runStates, poll, receipts, resolver, limiter)
 }
